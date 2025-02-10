@@ -59,4 +59,4 @@ jobs:
             --platform "managed" \
             --allow-unauthenticated \
             --memory=2Gi \
-            --startup-timeout=120s
+            --timeout=120s
