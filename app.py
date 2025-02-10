@@ -387,4 +387,4 @@ def forecast():
     return jsonify(forecast_data) #return the data in json format
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))  # Run the app locally
+    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))  # Run the app locally

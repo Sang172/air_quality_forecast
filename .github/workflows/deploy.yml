@@ -1,89 +1,50 @@
-name: Deploy to Elastic Beanstalk
+name: Deploy to Cloud Run
 
 on:
   push:
     branches:
-      - main  # Trigger on pushes to the 'main' branch (adjust as needed)
+      - main  # Trigger deployment on pushes to the main branch
 
 env:
-  AWS_REGION: us-west-1  # Replace with your AWS region
-  EB_APPLICATION_NAME: air-quality-forecast  # Replace with your EB application name
-  EB_ENVIRONMENT_NAME: air-quality-forecast-env  # Replace with your EB environment name
-  S3_BUCKET_NAME: air-quality-forecast # Replace with your s3 bucket name.
-  DOCKER_IMAGE_NAME: air-quality-forecast # Replace this.
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  SERVICE_NAME: air-quality-forecast  # Choose a name for your Cloud Run service
+  REGION: us-west1 # Choose the same region as your Artifact Registry
+  REPOSITORY: air-quality-forecast # Name of your Artifact Registry repository.
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v1
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v1
 
-      - name: Build, tag, and push Docker image to Amazon ECR
-        id: build-image
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-        run: |
-          docker build -t $ECR_REGISTRY/$DOCKER_IMAGE_NAME:$GITHUB_SHA .
-          docker push $ECR_REGISTRY/$DOCKER_IMAGE_NAME:$GITHUB_SHA
-          echo "image=$ECR_REGISTRY/$DOCKER_IMAGE_NAME:$GITHUB_SHA" >> $GITHUB_OUTPUT
+    - name: Configure Docker
+      run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-      - name: Create new Elastic Beanstalk application version
-        id: create-eb-version
-        run: |
-          cat << EOF > Dockerrun.aws.json
-          {
-            "AWSEBDockerrunVersion": "1",
-            "Image": {
-              "Name": "${{ steps.login-ecr.outputs.registry }}/${{ env.DOCKER_IMAGE_NAME }}:${{ github.sha }}",
-              "Update": "true"
-            },
-            "Ports": [
-              {
-                "ContainerPort": "8080",
-                "HostPort": "8080"
-              }
-            ]
-          }
-          EOF
+    - name: Build Docker image
+      run: |
+        docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest .
 
-          zip -r app.zip Dockerrun.aws.json
+    - name: Push Docker image to Artifact Registry
+      run: docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest
 
-          echo "Contents of the current directory:"
-          ls -la
-          echo "Uploading app.zip to S3:"
-          aws s3 cp app.zip s3://${{ env.S3_BUCKET_NAME }}/
-
-          aws elasticbeanstalk create-application-version \
-            --application-name ${{ env.EB_APPLICATION_NAME }} \
-            --version-label ${{ github.sha }} \
-            --source-bundle S3Bucket="${{ env.S3_BUCKET_NAME }}",S3Key="app.zip" \
-            --auto-create-application
-          echo "version_label=${{ github.sha }}" >> $GITHUB_OUTPUT
-
-      - name: Deploy to Elastic Beanstalk
-        run: |
-          aws elasticbeanstalk update-environment \
-            --environment-name ${{ env.EB_ENVIRONMENT_NAME }} \
-            --version-label ${{ steps.create-eb-version.outputs.version_label }}
-
-      - name: Set environment variables for EB
-        run: |
-            aws elasticbeanstalk update-environment --environment-name ${{ env.EB_ENVIRONMENT_NAME }} --option-settings \
-            Namespace=aws:elasticbeanstalk:application:environment,OptionName=AWS_ACCESS_KEY,Value="${{ secrets.AWS_ACCESS_KEY }}" \
-            Namespace=aws:elasticbeanstalk:application:environment,OptionName=AWS_SECRET_ACCESS_KEY,Value="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
-            Namespace=aws:elasticbeanstalk:application:environment,OptionName=S3_BUCKET_NAME,Value="${{ env.S3_BUCKET_NAME }}" \
-            Namespace=aws:elasticbeanstalk:application:environment,OptionName=OPENAQ_API_KEY,Value="${{ secrets.OPENAQ_API_KEY }}" \
-            Namespace=aws:elasticbeanstalk:container:python,OptionName=WSGIPath,Value="app:app"
+    - name: Deploy to Cloud Run
+      run: |
+        gcloud run deploy ${{ env.SERVICE_NAME }} \
+          --image ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest \
+          --region ${{ env.REGION }} \
+          --platform managed \
+          --allow-unauthenticated \
+          --set-env-vars="OPENAQ_API_KEY=${{ secrets.OPENAQ_API_KEY }},AWS_ACCESS_KEY=${{ secrets.AWS_ACCESS_KEY }},AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }},S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}"
