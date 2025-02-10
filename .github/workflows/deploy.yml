@@ -73,7 +73,6 @@ jobs:
             --auto-create-application
           echo "version_label=${{ github.sha }}" >> $GITHUB_OUTPUT
 
-
       - name: Deploy to Elastic Beanstalk
         run: |
           aws elasticbeanstalk update-environment \
