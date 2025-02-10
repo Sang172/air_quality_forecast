@@ -13,10 +13,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expose the port the app runs on
-EXPOSE 5000
+EXPOSE 8080
 
 # Define environment variables (these can be overridden at runtime)
-ENV PORT=5000
+ENV PORT=8080
 
 # Run app.py when the container launches
 CMD exec gunicorn --bind :${PORT} app:app
