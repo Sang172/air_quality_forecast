@@ -1,50 +1,60 @@
-name: Deploy to Cloud Run
+name: Deploy to Google Cloud Run
 
 on:
   push:
     branches:
-      - main  # Trigger deployment on pushes to the main branch
+      - main  # Trigger the workflow on pushes to the main branch
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  SERVICE_NAME: air-quality-forecast  # Choose a name for your Cloud Run service
-  REGION: us-west1 # Choose the same region as your Artifact Registry
-  REPOSITORY: air-quality-forecast # Name of your Artifact Registry repository.
+  SERVICE: air-quality-forecast # The name of your Cloud Run service
+  REGION: ${{ secrets.GCP_REGION }} # Change to your desired region, must be the same as the Artifact Registry's
+  REPOSITORY: ${{ secrets.GCP_ARTIFACT_REPOSITORY }}
 
 jobs:
   deploy:
+    name: Deploy
     runs-on: ubuntu-latest
+
     permissions:
       contents: 'read'
       id-token: 'write'
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v3
 
-    - name: Authenticate to Google Cloud
-      uses: google-github-actions/auth@v1
-      with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
+      - name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v1'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
 
-    - name: Set up Cloud SDK
-      uses: google-github-actions/setup-gcloud@v1
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v1'
+        with:
+            project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-    - name: Configure Docker
-      run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+      # Configure Docker to use the gcloud credential helper
+      - run: |-
+          gcloud --quiet auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-    - name: Build Docker image
-      run: |
-        docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest .
+      # Build the Docker image
+      - name: Build
+        run: |-
+          docker build \
+            --tag "${{ env.REGION }}-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$GITHUB_SHA" \
+            .
 
-    - name: Push Docker image to Artifact Registry
-      run: docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest
+      # Push the Docker image to Google Artifact Registry
+      - name: Push
+        run: |-
+          docker push "${{ env.REGION }}-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$GITHUB_SHA"
 
-    - name: Deploy to Cloud Run
-      run: |
-        gcloud run deploy ${{ env.SERVICE_NAME }} \
-          --image ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.SERVICE_NAME }}:latest \
-          --region ${{ env.REGION }} \
-          --platform managed \
-          --allow-unauthenticated \
-          --set-env-vars="OPENAQ_API_KEY=${{ secrets.OPENAQ_API_KEY }},AWS_ACCESS_KEY=${{ secrets.AWS_ACCESS_KEY }},AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }},S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}"
+      # Deploy to Cloud Run
+      - name: Deploy
+        run: |-
+          gcloud run deploy "$SERVICE" \
+            --image "${{ env.REGION }}-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$GITHUB_SHA" \
+            --region "$REGION" \
+            --platform "managed" \
+            --allow-unauthenticated # Allows public access; adjust if needed

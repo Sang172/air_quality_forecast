@@ -15,6 +15,7 @@ import logging
 import boto3
 from flask import Flask, render_template, request, jsonify
 from sklearn.preprocessing import StandardScaler
+import tempfile
 
 load_dotenv()
 
@@ -25,8 +26,8 @@ AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
 S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')  # The name of your S3 bucket
 MODEL_FILE_NAME = 'lstm.keras'
 SCALER_FILE_NAME = 'scaler.pickle'
-LOCAL_MODEL_PATH = 'local_lstm.keras'  # Temporary local path
-LOCAL_SCALER_PATH = 'local_scaler.pickle'
+LOCAL_MODEL_PATH = os.path.join(tempfile.gettempdir(), 'local_lstm.keras')
+LOCAL_SCALER_PATH = os.path.join(tempfile.gettempdir(), 'local_scaler.pickle')
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s',
