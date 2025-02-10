@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SF Bay Area Air Quality Forecast</title>
+    <style>
+        body {
+            background-color: #001f3f; /* Dark blue background */
+            color: #ffffff; /* White text for most content */
+            font-family: sans-serif; /* Use a sans-serif font */
+        }
+
+        h1 {
+            text-align: center;
+            color: #ffffff; /* White color for the title */
+        }
+
+        h2 { /* Added styling for h2 */
+          text-align: center;
+          color: #ffffff; /* White color for the subtitle */
+        }
+
+        form {
+            text-align: center;
+            margin-bottom: 30px; /* Add some space below the form */
+        }
+
+        label {
+            display: block; /* Make the label a block element for spacing */
+            margin-bottom: 5px;
+            color: #ffffff; /* White for labels */
+        }
+        input[type="text"] {
+            width: 80%; /* Larger input box */
+            max-width: 600px; /* Limit maximum width */
+            padding: 15px; /* More padding */
+            font-size: 18px; /* Larger font size */
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            box-sizing: border-box; /* Include padding and border in the element's total width */
+            color: #000000; /*Make the text color within the input box black*/
+        }
+
+        button[type="submit"] {
+            padding: 12px 24px;
+            font-size: 16px;
+            background-color: #4CAF50; /* Green button */
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer; /* Change cursor on hover */
+        }
+        button[type="submit"]:hover{
+            background-color:#367c39
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 80%;
+            margin: 20px auto;
+            background-color: #003366; /* Slightly lighter dark blue for table */
+            color: #ffffff; /* White text in the table */
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 12px; /* More padding in table cells */
+            text-align: center; /* Center text horizontally */
+            vertical-align: middle; /* Center text vertically */
+            width: auto;
+
+        }
+        th {
+            background-color: #001f3f; /* Dark blue header background */
+            color: #ffffff;  /*White text color*/
+        }
+        .example-address{
+            color: #ffffff;
+            text-align: center;
+            margin-top: 10px;
+        }
+        p{
+            text-align: center;
+        }
+        .aqi-column {
+             width: 65px; /* Adjust as needed */
+         }
+
+    </style>
+</head>
+<body>
+    <h1>SF Bay Area Air Quality Forecast</h1>
+
+    <form method="POST" action="/">
+        <label for="address">Enter Address:</label>
+        <input type="text" id="address" name="address" value="{{ address }}" placeholder="e.g., 101 Howard St, San Francisco, CA" required>
+        <button type="submit">Get Forecast</button>
+    </form>
+    <div class="example-address">
+        Example Address: 101 Howard St, San Francisco, CA
+    </div>
+
+    {% if forecast %}
+        <h2>Forecast for: {{ address }}</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Timestamp</th>
+                    <th class ="aqi-column">AQI</th>
+                    <th>Interpretation</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for timestamp, (aqi, interpretation) in forecast.items() %}
+                    <tr>
+                        <td>{{ timestamp }}</td>
+                        <td class = "aqi-column">{{ aqi }}</td>
+                        <td>{{ interpretation }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>Enter an address to get the forecast.</p>
+    {% endif %}
+</body>
+</html>

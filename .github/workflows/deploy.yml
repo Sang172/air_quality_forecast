@@ -1,0 +1,68 @@
+name: Deploy to Elastic Beanstalk
+
+on:
+  push:
+    branches:
+      - main  # Trigger on pushes to the 'main' branch (adjust as needed)
+
+env:
+  AWS_REGION: us-west-1  # Replace with your AWS region
+  EB_APPLICATION_NAME: air-quality-forecast  # Replace with your EB application name
+  EB_ENVIRONMENT_NAME: air-quality-forecast-env  # Replace with your EB environment name
+  S3_BUCKET_NAME: air-quality-forecast # Replace with your s3 bucket name.
+  DOCKER_IMAGE_NAME: air-quality-forecast # Replace this.
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push Docker image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$DOCKER_IMAGE_NAME:$GITHUB_SHA .
+          docker push $ECR_REGISTRY/$DOCKER_IMAGE_NAME:$GITHUB_SHA
+          echo "image=$ECR_REGISTRY/$DOCKER_IMAGE_NAME:$GITHUB_SHA" >> $GITHUB_OUTPUT
+
+      - name: Create new Elastic Beanstalk application version
+        id: create-eb-version
+        run: |
+          aws elasticbeanstalk create-application-version \
+            --application-name ${{ env.EB_APPLICATION_NAME }} \
+            --version-label ${{ github.sha }} \
+            --source-bundle S3Bucket="${{ env.S3_BUCKET_NAME }}",S3Key="dummy.zip" \
+            --auto-create-application \
+            --process
+          echo "version_label=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+
+      - name: Deploy to Elastic Beanstalk
+        run: |
+          aws elasticbeanstalk update-environment \
+            --environment-name ${{ env.EB_ENVIRONMENT_NAME }} \
+            --version-label ${{ steps.create-eb-version.outputs.version_label }}
+
+      - name: Set environment variables for EB
+        run: |
+            aws elasticbeanstalk update-environment --environment-name ${{ env.EB_ENVIRONMENT_NAME }} --option-settings \
+            Namespace=aws:elasticbeanstalk:application:environment,OptionName=AWS_ACCESS_KEY,Value="${{ secrets.AWS_ACCESS_KEY }}" \
+            Namespace=aws:elasticbeanstalk:application:environment,OptionName=AWS_SECRET_ACCESS_KEY,Value="${{ secrets.AWS_SECRET_ACCESS_KEY }}" \
+            Namespace=aws:elasticbeanstalk:application:environment,OptionName=S3_BUCKET_NAME,Value="${{ env.S3_BUCKET_NAME }}" \
+            Namespace=aws:elasticbeanstalk:application:environment,OptionName=OPENAQ_API_KEY,Value="${{ secrets.OPENAQ_API_KEY }}" \
+            Namespace=aws:elasticbeanstalk:container:python,OptionName=WSGIPath,Value="app:app"
