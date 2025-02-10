@@ -370,8 +370,9 @@ def main(address: str):
     logger.info(f"Returning forecasts")
     return forecasts
 
-app = Flask(__name__)
 
+
+app = Flask(__name__)
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -388,4 +389,5 @@ def forecast():
     return jsonify(forecast_data) #return the data in json format
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))  # Run the app locally
+    from waitress import serve
+    serve(app, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))

@@ -8,6 +8,7 @@ COPY requirements.txt .
 
 # Install any needed packages specified in requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install waitress
 
 # Copy the rest of the application code
 COPY . .
@@ -18,4 +19,4 @@ EXPOSE 8080
 # Define environment variables (these can be overridden at runtime)
 ENV PORT=8080
 
-CMD exec gunicorn --bind :${PORT} --log-level debug app:app
+CMD python app.py
