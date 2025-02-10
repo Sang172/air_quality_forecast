@@ -18,4 +18,4 @@ EXPOSE 8080
 # Define environment variables (these can be overridden at runtime)
 ENV PORT=8080
 
-CMD exec gunicorn --bind :${PORT} app:app
+CMD exec gunicorn --bind :${PORT} --log-level debug app:app
