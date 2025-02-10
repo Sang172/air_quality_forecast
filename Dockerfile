@@ -14,6 +14,6 @@ RUN pip install waitress
 COPY . .
 
 # Expose the port the app runs on
-EXPOSE 8080
+EXPOSE 5000
 
-CMD python app.py
+CMD exec gunicorn --bind :${PORT} --log-level debug app:app
