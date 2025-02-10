@@ -60,6 +60,12 @@ jobs:
           EOF
 
           zip -r app.zip Dockerrun.aws.json
+
+          echo "Contents of the current directory:"
+          ls -la
+          echo "Uploading app.zip to S3:"
+          aws s3 cp app.zip s3://${{ env.S3_BUCKET_NAME }}/
+
           aws elasticbeanstalk create-application-version \
             --application-name ${{ env.EB_APPLICATION_NAME }} \
             --version-label ${{ github.sha }} \
