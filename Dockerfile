@@ -18,5 +18,4 @@ EXPOSE 8080
 # Define environment variables (these can be overridden at runtime)
 ENV PORT=8080
 
-# Run app.py when the container launches
 CMD exec gunicorn --bind :${PORT} app:app
