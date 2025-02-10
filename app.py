@@ -16,6 +16,7 @@ import boto3
 from flask import Flask, render_template, request, jsonify
 from sklearn.preprocessing import StandardScaler
 import tempfile
+from waitress import serve
 
 load_dotenv()
 
@@ -389,5 +390,4 @@ def forecast():
     return jsonify(forecast_data) #return the data in json format
 
 if __name__ == '__main__':
-    from waitress import serve
     serve(app, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))

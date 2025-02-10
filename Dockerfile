@@ -16,7 +16,4 @@ COPY . .
 # Expose the port the app runs on
 EXPOSE 8080
 
-# Define environment variables (these can be overridden at runtime)
-ENV PORT=8080
-
 CMD python app.py
