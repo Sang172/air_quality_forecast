@@ -59,4 +59,8 @@ jobs:
             --platform "managed" \
             --allow-unauthenticated \
             --memory=2Gi \
-            --timeout=120s
+            --timeout=120s \
+            --set-env-vars OPENAQ_API_KEY=${{ secrets.OPENAQ_API_KEY }},\
+                           AWS_ACCESS_KEY=${{ secrets.AWS_ACCESS_KEY }},\
+                           AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }},\
+                           S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}
