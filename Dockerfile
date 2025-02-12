@@ -11,4 +11,4 @@ COPY . .
 
 EXPOSE 5000
 
-CMD exec gunicorn --bind :${PORT} --log-level debug app:app
+CMD exec gunicorn --bind :${PORT} --log-level debug --timeout 300 app:app
