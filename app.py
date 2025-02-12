@@ -293,7 +293,7 @@ def generate_next_24_hours(datetime_string):
 
 
 
-def load_predict(data, target, feature_num):
+def predict(data, target, feature_num):
     X = data[target+feature_num].values
     X = np.expand_dims(X, axis=0)
     pred = model.predict(X)
@@ -313,23 +313,17 @@ def main(address: str):
         logger.error("Could not geocode the provided address.")
         return None
 
-    logger.info(f"Geocoded coordinates: {coord}")
-
     logger.info("Getting nearby sensor IDs...")
     sensor_ids = get_sensor_ids(coord)
     if not sensor_ids:
         logger.error("Could not find sensor IDs for the provided coordinates.")
         return None
 
-    logger.info(f"Found nearby sensor IDs")
-
-    logger.info("Getting closest measurements...")
+    logger.info("Getting closest air quality measurements...")
     measurements = get_closest_measurement(sensor_ids)
     if not measurements:
-        logger.error("Could not find closest measurements")
+        logger.error("Could not find close measurements")
         return None
-    
-    logger.info(f"Got closest measurements")
 
     logger.info("Calling Open-Meteo API...")
     data = open_meteo_api_call(measurements)
@@ -354,8 +348,8 @@ def main(address: str):
     data = normalize_data(data, feature_num)
     logger.info("Feature engineering complete.")
 
-    logger.info("Loading model and running prediction...")
-    forecasts = load_predict(data, target, feature_num)
+    logger.info("Getting prediction...")
+    forecasts = predict(data, target, feature_num)
     if not forecasts:
         logger.error("Could not generate the forecast.")
         return None
