@@ -3,12 +3,12 @@ name: Deploy to Google Cloud Run
 on:
   push:
     branches:
-      - main  # Trigger the workflow on pushes to the main branch
+      - main
 
 env:
   PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  SERVICE: air-quality-forecast # The name of your Cloud Run service
-  REGION: ${{ secrets.GCP_REGION }} # Change to your desired region, must be the same as the Artifact Registry's
+  SERVICE: air-quality-forecast
+  REGION: ${{ secrets.GCP_REGION }}
   REPOSITORY: ${{ secrets.GCP_ARTIFACT_REPOSITORY }}
 
 jobs:
@@ -34,23 +34,19 @@ jobs:
         with:
             project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      # Configure Docker to use the gcloud credential helper
       - run: |-
           gcloud --quiet auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-      # Build the Docker image
       - name: Build
         run: |-
           docker build \
             --tag "${{ env.REGION }}-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$GITHUB_SHA" \
             .
 
-      # Push the Docker image to Google Artifact Registry
       - name: Push
         run: |-
           docker push "${{ env.REGION }}-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$GITHUB_SHA"
 
-      # Deploy to Cloud Run
       - name: Deploy
         run: |-
           gcloud run deploy "$SERVICE" \

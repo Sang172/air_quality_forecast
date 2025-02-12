@@ -13,9 +13,12 @@ from dotenv import load_dotenv
 import os
 import logging
 import boto3
+import s3fs
 from flask import Flask, render_template, request, jsonify
 from sklearn.preprocessing import StandardScaler
 import tempfile
+import io
+import zipfile
 
 load_dotenv()
 
@@ -23,7 +26,7 @@ api_key=os.environ.get('OPENAQ_API_KEY')
 headers = {"X-API-Key": api_key}
 AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY')
 AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
-S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')  # The name of your S3 bucket
+S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')
 MODEL_FILE_NAME = 'lstm.keras'
 SCALER_FILE_NAME = 'scaler.pickle'
 LOCAL_MODEL_PATH = os.path.join(tempfile.gettempdir(), 'local_lstm.keras')
@@ -56,7 +59,7 @@ with open(LOCAL_SCALER_PATH, 'rb') as f:
 def geocode_address(address):
     geolocator = Nominatim(user_agent="openaq_data_fetcher")
     try:
-        location = geolocator.geocode(address, timeout=10)  # Add a timeout
+        location = geolocator.geocode(address, timeout=10)
         if location:
             return (location.latitude, location.longitude)
         else:
@@ -157,7 +160,6 @@ def get_closest_measurement(sensor_ids, hours_ago=48):
 
 def create_dataframe(data_list):
 
-    # 1. Process timestamps and find the latest
     processed_data = []
     for ts, val, coord in data_list:
         dt = datetime.fromisoformat(ts)
@@ -165,14 +167,11 @@ def create_dataframe(data_list):
 
     latest_timestamp = max(processed_data, key=lambda item: item[0])[0]
 
-    # 2. Generate 48 timestamps (now 47 hours prior to latest)
     desired_timestamps = [latest_timestamp - timedelta(hours=i) for i in range(47, -1, -1)]
 
-    # Format for initial DataFrame creation
     desired_time_format = "%Y-%m-%d %H:%M:%S"
     formatted_timestamps = [dt.strftime(desired_time_format) for dt in desired_timestamps]
 
-    # 3. Create 48-row DataFrame
     df_data = {
         'aq_coord': [processed_data[0][2]] * 48,
         'time': formatted_timestamps,
@@ -183,17 +182,14 @@ def create_dataframe(data_list):
     df = pd.DataFrame(df_data)
     df['time'] = pd.to_datetime(df['time'])
 
-    # 4. Populate values (using naive datetimes for lookup)
     data_dict = {timestamp.replace(tzinfo=None): value for timestamp, value, _ in processed_data}
     for i in range(len(df)):
         if df['time'][i] in data_dict:
             df.loc[i, 'value'] = data_dict[df['time'][i]]
 
-    # 5. Interpolate on the 48-row DataFrame
     df['value'] = pd.to_numeric(df['value'], errors='coerce')
     df['value'] = df['value'].interpolate(method='linear', limit_direction='both')
 
-    # 6. Return the *last* 24 rows
     return df.tail(24).reset_index(drop=True)
 
 
@@ -265,6 +261,7 @@ def cyclical_encoding(df1):
 
 def normalize_data(df, feature_num):
     df[feature_num] = scaler.transform(df[feature_num])
+    df[feature_num] = df[feature_num].interpolate(method='linear').bfill().ffill()
     return df
 
 
@@ -293,6 +290,7 @@ def generate_next_24_hours(datetime_string):
         next_hour = start_datetime + timedelta(hours=i+1)
         hourly_datetimes.append(next_hour.strftime('%Y-%m-%d %H:%M:%S'))
     return hourly_datetimes
+
 
 
 def load_predict(data, target, feature_num):
@@ -328,7 +326,7 @@ def main(address: str):
     logger.info("Getting closest measurements...")
     measurements = get_closest_measurement(sensor_ids)
     if not measurements:
-        logger.error("Could not find closest measurements") #get_closest_measurement will print its own error message
+        logger.error("Could not find closest measurements")
         return None
     
     logger.info(f"Got closest measurements")
@@ -338,34 +336,29 @@ def main(address: str):
     if data is None:
         logger.error("Could not retrieve weather data.")
         return None  # No point continuing
-    
     logger.info("Retrieved weather data.")
 
+
+
+    logger.info("Start feature engineering")
     id_columns = ['aq_coord', 'time']
     target = ['value']
     feature_num = ['aq_lat', 'aq_lon', 'lat_diff', 'lon_diff', 'distance_mi', 'temperature_2m', 'relative_humidity_2m',
                    'precipitation', 'rain', 'snowfall', 'cloud_cover', 'w_elevation', 'wind_speed_10m',
                    'wind_direction_10m']
     data = data[id_columns + target + feature_num]
-
-    logger.info("Performing cyclical encoding...")
     data = cyclical_encoding(data)
-    logger.info("Cyclical encoding complete.")
-
     feature_num.pop(-1)
     feature_num += ['month_sin', 'month_cos', 'hour_sin', 'hour_cos', 'dayofweek_sin', 'dayofweek_cos',
                     'dayofyear_sin', 'dayofyear_cos', 'wind_direction_10m_cos', 'wind_direction_10m_sin']
-
-    logger.info("Normalizing data...")
     data = normalize_data(data, feature_num)
-    logger.info("Data normalization complete.")
+    logger.info("Feature engineering complete.")
 
-    logger.info("Loading and predicting...")
+    logger.info("Loading model and running prediction...")
     forecasts = load_predict(data, target, feature_num)
     if not forecasts:
         logger.error("Could not generate the forecast.")
         return None
-
     logger.info("Prediction complete.")
     logger.info(f"Returning forecasts")
     return forecasts
@@ -386,7 +379,7 @@ def index():
 def forecast():
     address = request.form['address']
     forecast_data = main(address)
-    return jsonify(forecast_data) #return the data in json format
+    return jsonify(forecast_data)
 
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))  # Run the app locally
+    app.run(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))

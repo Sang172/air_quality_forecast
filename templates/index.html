@@ -6,51 +6,51 @@
     <title>SF Bay Area Air Quality Forecast</title>
     <style>
         body {
-            background-color: #001f3f; /* Dark blue background */
-            color: #ffffff; /* White text for most content */
-            font-family: sans-serif; /* Use a sans-serif font */
+            background-color: #001f3f;
+            color: #ffffff;
+            font-family: sans-serif;
         }
 
         h1 {
             text-align: center;
-            color: #ffffff; /* White color for the title */
+            color: #ffffff;
         }
 
-        h2 { /* Added styling for h2 */
+        h2 {
           text-align: center;
-          color: #ffffff; /* White color for the subtitle */
+          color: #ffffff;
         }
 
         form {
             text-align: center;
-            margin-bottom: 30px; /* Add some space below the form */
+            margin-bottom: 30px;
         }
 
         label {
-            display: block; /* Make the label a block element for spacing */
+            display: block;
             margin-bottom: 5px;
-            color: #ffffff; /* White for labels */
+            color: #ffffff;
         }
         input[type="text"] {
-            width: 80%; /* Larger input box */
-            max-width: 600px; /* Limit maximum width */
-            padding: 15px; /* More padding */
-            font-size: 18px; /* Larger font size */
+            width: 80%;
+            max-width: 600px;
+            padding: 15px;
+            font-size: 18px;
             border: 2px solid #ddd;
             border-radius: 5px;
             margin-bottom: 15px;
-            box-sizing: border-box; /* Include padding and border in the element's total width */
-            color: #000000; /*Make the text color within the input box black*/
+            box-sizing: border-box; 
+            color: #000000; 
         }
 
         button[type="submit"] {
             padding: 12px 24px;
             font-size: 16px;
-            background-color: #4CAF50; /* Green button */
+            background-color: #4CAF50;
             color: white;
             border: none;
             border-radius: 5px;
-            cursor: pointer; /* Change cursor on hover */
+            cursor: pointer;
         }
         button[type="submit"]:hover{
             background-color:#367c39
@@ -60,20 +60,20 @@
             border-collapse: collapse;
             width: 80%;
             margin: 20px auto;
-            background-color: #003366; /* Slightly lighter dark blue for table */
-            color: #ffffff; /* White text in the table */
+            background-color: #003366; 
+            color: #ffffff; 
         }
         th, td {
             border: 1px solid #ddd;
-            padding: 12px; /* More padding in table cells */
-            text-align: center; /* Center text horizontally */
-            vertical-align: middle; /* Center text vertically */
+            padding: 12px; 
+            text-align: center;
+            vertical-align: middle; 
             width: auto;
 
         }
         th {
-            background-color: #001f3f; /* Dark blue header background */
-            color: #ffffff;  /*White text color*/
+            background-color: #001f3f; 
+            color: #ffffff;
         }
         .example-address{
             color: #ffffff;
@@ -84,15 +84,35 @@
             text-align: center;
         }
         .aqi-column {
-             width: 65px; /* Adjust as needed */
+             width: 65px;
          }
+
+        .loader {
+            border: 8px solid #f3f3f3;
+            border-top: 8px solid #3498db; 
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 2s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        #forecast-container {
+          position: relative;
+        }
 
     </style>
 </head>
 <body>
     <h1>SF Bay Area Air Quality Forecast</h1>
 
-    <form method="POST" action="/">
+    <form method="POST" action="/" id="aqi-form">
         <label for="address">Enter Address:</label>
         <input type="text" id="address" name="address" value="{{ address }}" placeholder="e.g., 101 Howard St, San Francisco, CA" required>
         <button type="submit">Get Forecast</button>
@@ -101,28 +121,54 @@
         Example Address: 101 Howard St, San Francisco, CA
     </div>
 
-    {% if forecast %}
-        <h2>Forecast for: {{ address }}</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>Timestamp</th>
-                    <th class ="aqi-column">AQI</th>
-                    <th>Interpretation</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for timestamp, (aqi, interpretation) in forecast.items() %}
+     <div id="forecast-container">
+        <div class="loader" id="loading-spinner"></div>  {% if forecast %}
+            <h2>Forecast for: {{ address }}</h2>
+            <table>
+                <thead>
                     <tr>
-                        <td>{{ timestamp }}</td>
-                        <td class = "aqi-column">{{ aqi }}</td>
-                        <td>{{ interpretation }}</td>
+                        <th>Timestamp</th>
+                        <th class ="aqi-column">AQI</th>
+                        <th>Interpretation</th>
                     </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    {% else %}
-        <p>Enter an address to get the forecast.</p>
-    {% endif %}
+                </thead>
+                <tbody>
+                    {% for timestamp, (aqi, interpretation) in forecast.items() %}
+                        <tr>
+                            <td>{{ timestamp }}</td>
+                            <td class = "aqi-column">{{ aqi }}</td>
+                            <td>{{ interpretation }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p id="initial-message">Enter an address to get the forecast.</p>
+        {% endif %}
+    </div>
+
+    <script>
+        const form = document.getElementById('aqi-form');
+        const spinner = document.getElementById('loading-spinner');
+        const forecastContainer = document.getElementById('forecast-container');
+        const initialMessage = document.getElementById('initial-message');
+
+
+        form.addEventListener('submit', function() {
+            spinner.style.display = 'block';
+
+            if (forecastContainer.querySelector('table')) {
+                forecastContainer.querySelector('table').style.display = 'none';
+            }
+            if (initialMessage) {
+              initialMessage.style.display = 'none';
+            }
+
+        });
+
+        window.addEventListener('load', function() {
+            spinner.style.display = 'none';
+        });
+    </script>
 </body>
 </html>
