@@ -1,0 +1,38 @@
+{
+    "family": "air-quality-forecast-prepare-task",
+    "taskRoleArn": "arn:aws:iam::864899839701:role/s3-access-role",
+    "executionRoleArn": "arn:aws:iam::864899839701:role/ecsTaskExecutionRole",
+    "networkMode": "awsvpc",
+    "containerDefinitions": [
+        {
+            "name": "prepare-container",
+            "image": "864899839701.dkr.ecr.us-west-1.amazonaws.com/air-quality-forecast-prepare:latest",
+            "memory": 4096,
+            "cpu": 1024,
+            "essential": true,
+            "environment": [
+                {
+                    "name": "S3_BUCKET_NAME",
+                    "value": "air-quality-forecast"
+                },
+                {
+                    "name": "OPENAQ_API_KEY",
+                    "value": "69c4463ceab6b7e9846a57851670696b32954ab4e9a5ef679620d7c2296d632b"
+                }
+            ],
+            "logConfiguration": {
+                "logDriver": "awslogs",
+                "options": {
+                    "awslogs-group": "/ecs/air-quality-forecast-prepare-task",
+                    "awslogs-region": "us-west-1",
+                    "awslogs-stream-prefix": "ecs"
+                }
+            }
+        }
+    ],
+    "requiresCompatibilities": [
+        "FARGATE"
+    ],
+    "cpu": "1024",
+    "memory": "4096"
+}

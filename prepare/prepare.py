@@ -41,9 +41,10 @@ headers = {"X-API-Key": api_key}
 parameter = 'pm25'
 bbox = "-122.6445,37.1897,-121.5871,38.2033"
 
-AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY')
-AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
-s3 = s3fs.S3FileSystem(key=AWS_ACCESS_KEY_ID, secret=AWS_SECRET_ACCESS_KEY)
+# AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY')
+# AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
+# s3 = s3fs.S3FileSystem(key=AWS_ACCESS_KEY_ID, secret=AWS_SECRET_ACCESS_KEY)
+s3 = s3fs.S3FileSystem()
 
 
 def get_openaq_locations(bbox, date_from, date_to):
@@ -196,11 +197,11 @@ def create_coord(df):
     air_quality = air_quality.drop(['lat', 'lon'], axis=1) 
     air_quality = air_quality.merge(avg_coords, on='location', how='left')
 
-    air_quality = air_quality.drop_duplicates()
     air_quality['aq_lat'] = air_quality['lat'].apply(lambda x: np.round(x,6))
     air_quality['aq_lon'] = air_quality['lon'].apply(lambda x: np.round(x,6))
     air_quality = air_quality.drop(columns=['lat','lon'])
     air_quality['aq_coord'] = air_quality.apply(lambda x: (x['aq_lat'],x['aq_lon']), axis=1)
+    air_quality = air_quality.drop_duplicates(subset=['datetime', 'aq_coord'])
     return air_quality
 
 
@@ -286,13 +287,15 @@ def merge_datasets(air_quality, weather):
     air_quality['datetime'] = pd.to_datetime(air_quality['datetime'])
     weather['time'] = pd.to_datetime(weather['time'])
     data = air_quality.merge(weather, left_on=['aq_coord','datetime'], right_on = ['aq_coord','time'], how='left')
+    data = data.drop_duplicates(subset=['datetime', 'aq_coord'])
     above1000 = data['aq_coord'].value_counts()
     above1000 = above1000[above1000>1000].index
     data = data[data['aq_coord'].isin(above1000)]
     data = data.sort_values(['aq_coord','datetime']).reset_index(drop=True)
     data['lat_diff'] = data['aq_lat'] - data['w_lat']
     data['lon_diff'] = data['aq_lon'] - data['w_lon']
-    # data = data[(data['distance_mi']<3)]
+    ############################################################################### data = data[(data['distance_mi']<3)]
+    data = data[(data['distance_mi']<3)]
     return data
 
 
@@ -399,7 +402,7 @@ def main():
 
     logger.info('Start retrieving air quality data from OpenAQ')
     location_ids = get_openaq_locations(bbox, date_from, date_to)
-    process_openaq_data(location_ids[10:12], date_from, date_to)
+    process_openaq_data(location_ids, date_from, date_to)
     logger.info('OpenAQ air quality data retrieval complete')
 
     logger.info('Start prcessing OpenAQ air quality data')

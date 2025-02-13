@@ -86,7 +86,7 @@ def main():
     # logger.info(model.summary())
 
     logger.info("Start training")
-    history = train_model(model, X_train, y_train, epochs=1, batch_size=32, validation_split=0.2)
+    history = train_model(model, X_train, y_train, epochs=80, batch_size=32, validation_split=0.2)
 
     rmse = evaluate_model(model, X_test, y_test)
 
