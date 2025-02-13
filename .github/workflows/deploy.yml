@@ -1,4 +1,4 @@
-name: Deploy to Google Cloud Run
+name: Deploy to Google Cloud Run and AWS Fargate
 
 on:
   push:
@@ -6,19 +6,26 @@ on:
       - main
 
 env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  SERVICE: air-quality-forecast
-  REGION: ${{ secrets.GCP_REGION }}
-  REPOSITORY: ${{ secrets.GCP_ARTIFACT_REPOSITORY }}
+  GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  GCP_SERVICE: air-quality-forecast
+  GCP_REGION: ${{ secrets.GCP_REGION }}
+  GCP_REPOSITORY: ${{ secrets.GCP_ARTIFACT_REPOSITORY }}
+
+  AWS_REGION: us-west-1 
+  ECR_REPOSITORY: air-quality-forecast-prepare
+  ECS_CLUSTER: air-quality-forecast-prepare-cluster
+  ECS_TASK_DEFINITION: air-quality-forecast-prepare-task 
+  CONTAINER_NAME: prepare-container
 
 jobs:
-  deploy:
-    name: Deploy
+  deploy-cloud-run:
+    name: Deploy to Cloud Run
     runs-on: ubuntu-latest
-
+    environment: gcp
     permissions:
       contents: 'read'
       id-token: 'write'
+    if: "!contains(github.event.head_commit.message, '[skip-gcp]')"
 
     steps:
       - name: Checkout
@@ -35,25 +42,72 @@ jobs:
             project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       - run: |-
-          gcloud --quiet auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+          gcloud --quiet auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev
 
-      - name: Build
+      - name: Build (Cloud Run)
         run: |-
           docker build \
-            --tag "${{ env.REGION }}-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$GITHUB_SHA" \
-            .
+            --tag "${{ env.GCP_REGION }}-docker.pkg.dev/$GCP_PROJECT_ID/$GCP_REPOSITORY/$GCP_SERVICE:$GITHUB_SHA" \
+            .  # Builds from the root Dockerfile (for app.py)
 
-      - name: Push
+      - name: Push (Cloud Run)
         run: |-
-          docker push "${{ env.REGION }}-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$GITHUB_SHA"
+          docker push "${{ env.GCP_REGION }}-docker.pkg.dev/$GCP_PROJECT_ID/$GCP_REPOSITORY/$GCP_SERVICE:$GITHUB_SHA"
 
-      - name: Deploy
+      - name: Deploy (Cloud Run)
         run: |-
-          gcloud run deploy "$SERVICE" \
-            --image "${{ env.REGION }}-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:$GITHUB_SHA" \
-            --region "$REGION" \
+          gcloud run deploy "$GCP_SERVICE" \
+            --image "${{ env.GCP_REGION }}-docker.pkg.dev/$GCP_PROJECT_ID/$GCP_REPOSITORY/$GCP_SERVICE:$GITHUB_SHA" \
+            --region "$GCP_REGION" \
             --platform "managed" \
             --allow-unauthenticated \
             --memory=2Gi \
             --timeout=120s \
             --set-env-vars="OPENAQ_API_KEY=${{ secrets.OPENAQ_API_KEY }},AWS_ACCESS_KEY=${{ secrets.AWS_ACCESS_KEY }},AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }},S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}"
+
+  deploy-fargate:
+    name: Deploy prepare.py to AWS Fargate
+    runs-on: ubuntu-latest
+    environment: aws
+    if: "!contains(github.event.head_commit.message, '[skip-fargate]')"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: latest
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f prepare/Dockerfile prepare/
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+      - name: Render Amazon ECS Task Definition
+        id: render-task-definition
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: prepare/task-definition.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy Amazon ECS Task Definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.render-task-definition.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true
