@@ -229,7 +229,6 @@ def standardize_datetime(air_quality_df):
 
 
 def clean_location(df):
-
     df_consolidated = df.copy()
 
     def get_most_frequent(group):
@@ -240,9 +239,10 @@ def clean_location(df):
         else:
             return None
 
-    most_frequent_locations = df.groupby('aq_coord').apply(get_most_frequent, include_groups=False).to_dict()
+    most_frequent_locations = df.groupby('aq_coord')['location'].agg(get_most_frequent)
 
     df_consolidated['location'] = df_consolidated['aq_coord'].map(most_frequent_locations)
+
     return df_consolidated
 
 
