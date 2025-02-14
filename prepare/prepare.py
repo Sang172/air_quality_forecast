@@ -53,7 +53,7 @@ def get_openaq_locations(bbox, date_from, date_to, retries=10, retry_delay=2):
 
     for attempt in range(retries):
         try:
-            response = requests.get(url, timeout=10)
+            response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
             data = response.json()['results']
 
