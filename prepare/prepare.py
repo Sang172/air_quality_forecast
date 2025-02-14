@@ -231,17 +231,19 @@ def standardize_datetime(air_quality_df):
 def clean_location(df):
     df_consolidated = df.copy()
 
-    def get_most_frequent(group):
-        """Helper function to get the most frequent location, handling ties."""
-        mode_result = group['location'].mode()
-        if not mode_result.empty:
-            return mode_result.iloc[0]
-        else:
-            return None
+    if 'location' not in df_consolidated.columns:
+        df_consolidated['location'] = np.nan
 
-    most_frequent_locations = df.groupby('aq_coord')['location'].agg(get_most_frequent)
+    most_frequent_locations = df_consolidated.groupby('aq_coord')['location'].agg(
+        lambda x: x.mode()[0] if not x.mode().empty else np.nan
+    )
+    location_map = most_frequent_locations.to_dict()
 
-    df_consolidated['location'] = df_consolidated['aq_coord'].map(most_frequent_locations)
+    df_consolidated['location'] = df_consolidated['location'].fillna(df_consolidated['aq_coord'].map(location_map))
+
+    unique_counts_after_impute = df_consolidated.groupby('aq_coord')['location'].nunique()
+    condition = df_consolidated['aq_coord'].map(unique_counts_after_impute) > 1
+    df_consolidated.loc[condition, 'location'] = df_consolidated.loc[condition, 'aq_coord'].map(location_map)
 
     return df_consolidated
 
