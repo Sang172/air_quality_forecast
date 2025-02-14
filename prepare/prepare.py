@@ -47,20 +47,43 @@ bbox = "-122.6445,37.1897,-121.5871,38.2033"
 s3 = s3fs.S3FileSystem()
 
 
-def get_openaq_locations(bbox, date_from, date_to):
+def get_openaq_locations(bbox, date_from, date_to, retries=10, retry_delay=2):
     url = 'https://api.openaq.org/v3/locations'
     url = url + '?bbox=' + bbox + '&params_id=2' + '&limit=1000' + f'&date_from={date_from}' + f'&date_to={date_to}'
-    try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
-        data = response.json()['results']
 
-        location_ids = {x['id']: [y['id'] for y in x['sensors'] if y['parameter']['id']==2] for x in data}
-        location_ids = [k for k,v in location_ids.items() if len(v)>0]
-        return location_ids
-    except requests.exceptions.RequestException as e:
-        logger.info(f"An error occurred: {e}")
-        return None
+    for attempt in range(retries):
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()['results']
+
+            location_ids = {x['id']: [y['id'] for y in x['sensors'] if y['parameter']['id'] == 2] for x in data}
+            location_ids = [k for k, v in location_ids.items() if len(v) > 0]
+            return location_ids
+
+        except requests.exceptions.Timeout:
+            logger.info(f"Attempt {attempt + 1}/{retries}: Request timed out.")
+            if attempt < retries - 1:
+                time.sleep(retry_delay)
+
+        except requests.exceptions.RequestException as e:
+            logger.info(f"Attempt {attempt + 1}/{retries}: Request failed: {e}")
+            if attempt < retries - 1:
+                time.sleep(retry_delay)
+
+        except KeyError as e:
+            logger.info(f"Attempt {attempt + 1}/{retries}: KeyError - 'results' key not found in response.  API response may have changed: {e}")
+            if attempt < retries - 1:
+                time.sleep(retry_delay)
+            return None
+
+        except Exception as e:
+            logger.info(f"Attempt {attempt + 1}/{retries}: An unexpected error occurred: {e}")
+            if attempt < retries - 1:
+                time.sleep(retry_delay)
+
+    logger.info(f"Failed to retrieve location IDs after {retries} attempts.")
+    return None
     
 
 def process_location(location_id, date_from, date_to):
@@ -248,23 +271,40 @@ def clean_location(df):
     return df_consolidated
 
 
-def open_meteo_api_call(aq_lat, aq_lon, date_from, date_to):
+def open_meteo_api_call(aq_lat, aq_lon, date_from, date_to, retries=10, retry_delay=2):
     url1 = "https://archive-api.open-meteo.com/v1/archive?"
     url2 = f"latitude={aq_lat}&longitude={aq_lon}"
     url3 = f"&start_date={date_from}&end_date={date_to}&hourly=temperature_2m,relative_humidity_2m,precipitation,rain,snowfall,cloud_cover,wind_speed_10m,wind_direction_10m&timezone=America%2FLos_Angeles"
     url = url1+url2+url3
-    response = requests.get(url)
 
-    if response.status_code == 200:
-        data = response.json()
-        df = pd.DataFrame(data['hourly'])
-        df['w_lat'] = data['latitude']
-        df['w_lon'] = data['longitude']
-        df['w_elevation'] = data['elevation']
-        df['w_coord'] = df.apply(lambda x: (x['w_lat'],x['w_lon']), axis=1)
-        return df
-    else:
-        logger.info(f"Error: {response.status_code}")
+    for attempt in range(retries):
+        try:
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+
+            data = response.json()
+            df = pd.DataFrame(data['hourly'])
+            df['w_lat'] = data['latitude']
+            df['w_lon'] = data['longitude']
+            df['w_elevation'] = data['elevation']
+            df['w_coord'] = df.apply(lambda x: (x['w_lat'], x['w_lon']), axis=1)
+            return df
+
+        except requests.exceptions.Timeout:
+            logger.info(f"Attempt {attempt + 1}/{retries}: Request timed out.")
+            if attempt < retries - 1:
+                time.sleep(retry_delay)  # Wait before retrying
+        except requests.exceptions.RequestException as e:
+            logger.info(f"Attempt {attempt + 1}/{retries}: Request failed: {e}")
+            if attempt < retries - 1:
+                time.sleep(retry_delay)
+        except Exception as e:
+            logger.info(f"Attempt {attempt + 1}/{retries}: An unexpected error occured: {e}")
+            if attempt < retries - 1:
+               time.sleep(retry_delay)
+
+    logger.info(f"Failed to retrieve data after {retries} attempts.")
+    return None
 
 
 def get_closest_weather(air_quality, date_from, date_to):
