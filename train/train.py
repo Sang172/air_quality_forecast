@@ -5,20 +5,22 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
+from sklearn.preprocessing import StandardScaler
 import pickle
 from dotenv import load_dotenv
 import s3fs
 import os
 import logging
-import shutil
-import io
 
 
 
 load_dotenv()
 AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY')
 AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
+S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')
 s3 = s3fs.S3FileSystem(key=AWS_ACCESS_KEY_ID, secret=AWS_SECRET_ACCESS_KEY)
+
+SCALER_TARGET_FILE_NAME = 'scaler_target.pickle'
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -34,6 +36,9 @@ logger.info("Read target")
 with s3.open('s3://air-quality-forecast/output_y.pickle', 'rb') as file:
     y = pickle.load(file)
 
+logger.info("Read target scaler")
+with s3.open('s3://air-quality-forecast/scaler_target.pickle', 'rb') as file:
+    scaler_target = pickle.load(file)
 
 def create_lstm_model(input_shape, output_shape):
 
@@ -63,9 +68,10 @@ def evaluate_model(model, X_test, y_test):
 
 
     y_pred = model.predict(X_test)
-
-    y_test_flat = y_test.flatten()
-    y_pred_flat = y_pred.flatten()
+    mean = scaler_target.mean_
+    std = scaler_target.scale_
+    y_test_flat = y_test.flatten() * std + mean
+    y_pred_flat = y_pred.flatten() * std + mean
     
     mse = mean_squared_error(y_test_flat, y_pred_flat)
     rmse = np.sqrt(mse)

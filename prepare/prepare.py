@@ -369,14 +369,17 @@ def cyclical_encoding(df1):
     df = df.drop(columns = ['month','dayofweek','dayofyear','hour','wind_direction_10m'])
     return df
 
+def normalize_data(df, feature_num, target):
+    scaler_feature = StandardScaler()
+    df[feature_num] = scaler_feature.fit_transform(df[feature_num])
+    with s3.open('s3://air-quality-forecast/scaler_feature.pickle','wb') as file:
+        pickle.dump(scaler_feature, file)
 
-def normalize_data(df, feature_num):
-    scaler = StandardScaler()
-    df[feature_num] = scaler.fit_transform(df[feature_num])
-    with s3.open('s3://air-quality-forecast/scaler.pickle','wb') as file:
-        pickle.dump(scaler, file)
+    scaler_target = StandardScaler()
+    df[target] = scaler_target.fit_transform(df[target])
+    with s3.open('s3://air-quality-forecast/scaler_target.pickle','wb') as file:
+        pickle.dump(scaler_target, file)
     return df
-
 
 def find_valid_indices(df, location_col='aq_coord', datetime_col='time', lag_hours=23, lead_hours=24):
 
@@ -398,7 +401,6 @@ def find_valid_indices(df, location_col='aq_coord', datetime_col='time', lag_hou
     )
 
     def check_consecutive(series, window_size):
-      """Helper function for lead check."""
       reversed_series = series.iloc[::-1]
       rolled = reversed_series.rolling(window=window_size, min_periods=window_size).apply(lambda x: (x==1).all(), raw=True)
       return rolled.iloc[::-1].fillna(False)
@@ -407,6 +409,8 @@ def find_valid_indices(df, location_col='aq_coord', datetime_col='time', lag_hou
 
     valid_indices = df.index[df['valid_lag'] & df['valid_lead']]
     return valid_indices.to_numpy()
+
+
 
 def create_lstm_input_output(
     v: np.ndarray,
@@ -474,7 +478,7 @@ def main():
     data = cyclical_encoding(data)
     feature_num.pop(-1)
     feature_num += ['month_sin','month_cos','hour_sin','hour_cos','dayofweek_sin','dayofweek_cos','dayofyear_sin','dayofyear_cos','wind_direction_10m_cos','wind_direction_10m_sin']
-    data = normalize_data(data, feature_num)
+    data = normalize_data(data, feature_num, target)
     logger.info('Feature engineering complete')
 
 

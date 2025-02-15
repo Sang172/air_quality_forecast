@@ -12,13 +12,10 @@ import tensorflow as tf
 from dotenv import load_dotenv
 import os
 import logging
-import boto3
 import s3fs
 from flask import Flask, render_template, request, jsonify
 from sklearn.preprocessing import StandardScaler
 import tempfile
-import io
-import zipfile
 
 load_dotenv()
 
@@ -27,33 +24,38 @@ headers = {"X-API-Key": api_key}
 AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY')
 AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
 S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')
-MODEL_FILE_NAME = 'lstm.keras'
-SCALER_FILE_NAME = 'scaler.pickle'
-LOCAL_MODEL_PATH = os.path.join(tempfile.gettempdir(), 'local_lstm.keras')
-LOCAL_SCALER_PATH = os.path.join(tempfile.gettempdir(), 'local_scaler.pickle')
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S')
 logger = logging.getLogger(__name__)
 
+s3 = s3fs.S3FileSystem(key=AWS_ACCESS_KEY_ID, secret=AWS_SECRET_ACCESS_KEY)
 
-def download_from_s3(s3_file_name, local_path):
-    s3 = boto3.client('s3', aws_access_key_id=AWS_ACCESS_KEY_ID,
-                      aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
+with s3.open('s3://air-quality-forecast/scaler_feature.pickle', 'rb') as file:
+    scaler_feature = pickle.load(file)
+logger.info("Loaded feature scaler from S3")
+
+with s3.open('s3://air-quality-forecast/scaler_target.pickle', 'rb') as file:
+    scaler_target = pickle.load(file)
+logger.info("Loaded target scaler from S3")
+
+
+def download_from_s3_s3fs(s3_file_name, local_path):
     try:
-        s3.download_file(S3_BUCKET_NAME, s3_file_name, local_path)
+        s3_path = f"s3://{S3_BUCKET_NAME}/{s3_file_name}"
+        with s3.open(s3_path, 'rb') as s3_file, open(local_path, 'wb') as local_file:
+            local_file.write(s3_file.read())
         logger.info(f"Downloaded {s3_file_name} from S3 to {local_path}")
     except Exception as e:
-        logger.info(f"Error downloading {s3_file_name} from S3: {e}")
+        logger.exception(f"Error downloading {s3_file_name} from S3: {e}")
         raise
 
-download_from_s3(MODEL_FILE_NAME, LOCAL_MODEL_PATH)
-download_from_s3(SCALER_FILE_NAME, LOCAL_SCALER_PATH)
-
+MODEL_FILE_NAME = 'lstm.keras'
+LOCAL_MODEL_PATH = os.path.join(tempfile.gettempdir(), 'local_lstm.keras')
+download_from_s3_s3fs(MODEL_FILE_NAME, LOCAL_MODEL_PATH)
 model = tf.keras.models.load_model(LOCAL_MODEL_PATH)
-with open(LOCAL_SCALER_PATH, 'rb') as f:
-    scaler = pickle.load(f)
+
 
 
 def geocode_address(address):
@@ -259,9 +261,11 @@ def cyclical_encoding(df1):
     return df
 
 
-def normalize_data(df, feature_num):
-    df[feature_num] = scaler.transform(df[feature_num])
+def normalize_data(df, feature_num, target):
+    df[feature_num] = scaler_feature.transform(df[feature_num])
     df[feature_num] = df[feature_num].interpolate(method='linear').bfill().ffill()
+    df[target] = scaler_target.transform(df[target])
+    df[target] = df[target].interpolate(method='linear').bfill().ffill()
     return df
 
 
@@ -296,10 +300,12 @@ def generate_next_24_hours(datetime_string):
 def predict(data, target, feature_num):
     X = data[target+feature_num].values
     X = np.expand_dims(X, axis=0)
-    pred = model.predict(X)
+    mean = scaler_target.mean_
+    std = scaler_target.scale_
+    pred = model.predict(X)[0] * std + mean
     latest = data.iloc[-1]['time']
     forecasts = generate_next_24_hours(str(latest))
-    forecasts = {forecasts[i]: pm25_to_aqi(pred[0][i]) for i in range(24)}
+    forecasts = {forecasts[i]: pm25_to_aqi(pred[i]) for i in range(24)}
     return forecasts
 
 
@@ -345,7 +351,7 @@ def main(address: str):
     feature_num.pop(-1)
     feature_num += ['month_sin', 'month_cos', 'hour_sin', 'hour_cos', 'dayofweek_sin', 'dayofweek_cos',
                     'dayofyear_sin', 'dayofyear_cos', 'wind_direction_10m_cos', 'wind_direction_10m_sin']
-    data = normalize_data(data, feature_num)
+    data = normalize_data(data, feature_num, target)
     logger.info("Feature engineering complete.")
 
     logger.info("Getting prediction...")
