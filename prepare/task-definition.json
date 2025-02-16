@@ -6,7 +6,7 @@
     "containerDefinitions": [
         {
             "name": "prepare-container",
-            "image": "864899839701.dkr.ecr.us-west-1.amazonaws.com/air-quality-forecast-prepare:latest",
+            "image": "${{ steps.build-image.outputs.image }}",
             "memory": 4096,
             "cpu": 1024,
             "essential": true,
