@@ -113,6 +113,14 @@ jobs:
         with:
           task-definition: ${{ steps.render-task-definition.outputs.task-definition }}
           wait-for-finish: false
+          
+      - name: Get Registered Task Definition ARN
+        id: get-task-def-arn
+        run: |
+          TASK_DEF_ARN=$(aws ecs describe-task-definition --task-definition ${{ env.ECS_TASK_DEFINITION }} --query "taskDefinition.taskDefinitionArn" --output text)
+          echo "::set-output name=task_definition_arn::$TASK_DEF_ARN"
+        env:
+          AWS_DEFAULT_REGION: ${{ env.AWS_REGION_PREPARE }}
 
       - name: Run ECS Task (One-off execution)
         run: |
