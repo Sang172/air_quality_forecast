@@ -11,11 +11,14 @@ env:
   GCP_REGION: ${{ secrets.GCP_REGION }}
   GCP_REPOSITORY: ${{ secrets.GCP_ARTIFACT_REPOSITORY }}
 
-  AWS_REGION: us-west-1 
-  ECR_REPOSITORY: air-quality-forecast-prepare
+  AWS_REGION_PREPARE: us-west-1 
+  ECR_REPOSITORY_PREPARE: air-quality-forecast-prepare
   ECS_CLUSTER: air-quality-forecast-prepare-cluster
   ECS_TASK_DEFINITION: air-quality-forecast-prepare-task 
   CONTAINER_NAME: prepare-container
+
+  AWS_REGION_TRAIN: us-west-2
+  ECR_REPOSITORY_TRAIN: air-quality-forecast-train
 
 jobs:
   deploy-cloud-run:
@@ -80,7 +83,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION_PREPARE }}
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -92,9 +95,9 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f prepare/Dockerfile prepare/
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_PREPARE:$IMAGE_TAG -f prepare/Dockerfile prepare/
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_PREPARE:$IMAGE_TAG
+          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY_PREPARE:$IMAGE_TAG"
 
       - name: Render Amazon ECS Task Definition
         id: render-task-definition
