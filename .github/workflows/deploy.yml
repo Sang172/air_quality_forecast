@@ -11,11 +11,14 @@ env:
   GCP_REGION: ${{ secrets.GCP_REGION }}
   GCP_REPOSITORY: ${{ secrets.GCP_ARTIFACT_REPOSITORY }}
 
-  AWS_REGION: us-west-1 
-  ECR_REPOSITORY: air-quality-forecast-prepare
+  AWS_REGION_PREPARE: us-west-1 
+  ECR_REPOSITORY_PREPARE: air-quality-forecast-prepare
   ECS_CLUSTER: air-quality-forecast-prepare-cluster
   ECS_TASK_DEFINITION: air-quality-forecast-prepare-task 
   CONTAINER_NAME: prepare-container
+
+  AWS_REGION_TRAIN: us-west-2 
+  ECR_REPOSITORY_TRAIN: air-quality-forecast-train
 
 jobs:
   deploy-cloud-run:
@@ -64,7 +67,6 @@ jobs:
             --memory=2Gi \
             --timeout=120s \
             --set-env-vars="OPENAQ_API_KEY=${{ secrets.OPENAQ_API_KEY }},AWS_ACCESS_KEY=${{ secrets.AWS_ACCESS_KEY }},AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }},S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}"
-
   deploy-fargate:
     name: Deploy prepare.py to AWS Fargate
     runs-on: ubuntu-latest
@@ -80,7 +82,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION_PREPARE }}
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -92,9 +94,9 @@ jobs:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: latest
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -f prepare/Dockerfile prepare/
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY_PREPARE:$IMAGE_TAG -f prepare/Dockerfile prepare/
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY_PREPARE:$IMAGE_TAG
+          echo "::set-output name=image::$ECR_REGISTRY/$ECR_REPOSITORY_PREPARE:$IMAGE_TAG"
 
       - name: Render Amazon ECS Task Definition
         id: render-task-definition
@@ -104,10 +106,16 @@ jobs:
           container-name: ${{ env.CONTAINER_NAME }}
           image: ${{ steps.build-image.outputs.image }}
 
-      - name: Deploy Amazon ECS Task Definition
+      - name: Register Task Definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.render-task-definition.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+
+      - name: Run ECS Task (One-off execution)
+        run: |
+          aws ecs run-task \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --task-definition ${{ steps.render-task-definition.outputs.family }}:${{ steps.render-task-definition.outputs.revision }} \
+            --launch-type FARGATE 
+        env:
+          AWS_DEFAULT_REGION: ${{ env.AWS_REGION_PREPARE }}
