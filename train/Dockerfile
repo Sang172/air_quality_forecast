@@ -11,7 +11,7 @@ WORKDIR /opt/ml/code
 COPY requirements.txt /opt/ml/code/
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY train/train.py /opt/ml/code/
+COPY train.py /opt/ml/code/
 
 ENV SM_MODEL_DIR /opt/ml/model
 ENV SM_OUTPUT_DATA_DIR /opt/ml/output/data
