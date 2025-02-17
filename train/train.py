@@ -2,25 +2,26 @@ import numpy as np
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense
+from tensorflow.keras.layers import LSTM, Dense, Dropout
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import StandardScaler
 import pickle
-from dotenv import load_dotenv
-import s3fs
+#from dotenv import load_dotenv
+#import s3fs
 import os
 import logging
+import keras_tuner as kt
+import argparse
+import boto3
+import tempfile
 
 
-
-load_dotenv()
-AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY')
-AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
-S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')
-s3 = s3fs.S3FileSystem(key=AWS_ACCESS_KEY_ID, secret=AWS_SECRET_ACCESS_KEY)
-
-SCALER_TARGET_FILE_NAME = 'scaler_target.pickle'
+# load_dotenv()
+# AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY')
+# AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
+# S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')
+# s3 = s3fs.S3FileSystem(key=AWS_ACCESS_KEY_ID, secret=AWS_SECRET_ACCESS_KEY)
 
 logging.basicConfig(level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -28,27 +29,41 @@ logging.basicConfig(level=logging.INFO,
 logger = logging.getLogger(__name__)
 
 
-logger.info("Read features")
-with s3.open('s3://air-quality-forecast/input_X.pickle', 'rb') as file:
-    X = pickle.load(file)
+def load_data_from_s3(bucket, key):
+    s3 = boto3.client('s3')
+    obj = s3.get_object(Bucket=bucket, Key=key)
+    return pickle.load(obj['Body'])
 
-logger.info("Read target")
-with s3.open('s3://air-quality-forecast/output_y.pickle', 'rb') as file:
-    y = pickle.load(file)
+def save_model_to_s3(model, bucket, key):
+    s3 = boto3.resource('s3')
+    with tempfile.TemporaryDirectory() as temp_dir:
+        temp_path = os.path.join(temp_dir, 'lstm.keras')
+        model.save(temp_path)
+        s3.Bucket(bucket).upload_file(temp_path, key)
 
-logger.info("Read target scaler")
-with s3.open('s3://air-quality-forecast/scaler_target.pickle', 'rb') as file:
-    scaler_target = pickle.load(file)
 
-def create_lstm_model(input_shape, output_shape):
-
+def build_model(hp, input_shape, output_shape):
     model = Sequential()
-    model.add(LSTM(units=64, activation='tanh', return_sequences=True, input_shape=input_shape))
-    model.add(LSTM(units=32, activation='tanh'))
+
+    for i in range(hp.Int('num_lstm_layers', 1, 3)):
+        model.add(LSTM(
+            units=hp.Int(f'lstm_units_{i}', min_value=32, max_value=128, step=32),
+            activation='tanh',
+            return_sequences=True if i < hp.get('num_lstm_layers') - 1 else False,
+            input_shape=input_shape if i == 0 else None
+        ))
+        model.add(Dropout(hp.Float(f'dropout_{i}', min_value=0.0, max_value=0.5, step=0.1)))
+
     model.add(Dense(units=output_shape))
 
-    model.compile(optimizer='adam', loss='mse')
+    learning_rate = hp.Choice('learning_rate', values=[1e-2, 1e-3, 1e-4])
+
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+        loss='mse'
+    )
     return model
+
 
 
 def train_model(model, X_train, y_train, epochs=10, batch_size=32, validation_split=0.2):
@@ -64,7 +79,7 @@ def train_model(model, X_train, y_train, epochs=10, batch_size=32, validation_sp
     return history
 
 
-def evaluate_model(model, X_test, y_test):
+def evaluate_model(model, X_test, y_test, scaler_target):
 
 
     y_pred = model.predict(X_test)
@@ -81,30 +96,83 @@ def evaluate_model(model, X_test, y_test):
     return rmse
 
 
-def main():
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=52190)
+def main(args):
+
+    bucket = args.bucket
+    epochs = args.epochs
+    batch_size = args.batch_size
+
+    logger.info(f"Loading data from S3 bucket: {bucket}")
+    X = load_data_from_s3(bucket, 'input_X.pickle')
+    y = load_data_from_s3(bucket, 'output_y.pickle')
+    scaler_target = load_data_from_s3(bucket, 'scaler_target.pickle')
+    logger.info("Data loaded successfully.")
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
 
     input_shape = (X_train.shape[1], X_train.shape[2])
     output_shape = y_train.shape[1]
 
-    model = create_lstm_model(input_shape, output_shape)
-    # logger.info(model.summary())
 
-    logger.info("Start training")
-    history = train_model(model, X_train, y_train, epochs=80, batch_size=32, validation_split=0.2)
 
-    rmse = evaluate_model(model, X_test, y_test)
+    num_gpus = int(args.num_gpus) if args.num_gpus else 0
+    if num_gpus > 0:
+        logger.info(f"Num GPUs Available: {num_gpus}")
+        gpus = tf.config.list_physical_devices('GPU')
+        logger.info(f"GPUs Available: {gpus}")
+        if gpus:
+          try:
+            for gpu in gpus:
+              tf.config.experimental.set_memory_growth(gpu, True)
+            logical_gpus = tf.config.list_logical_devices('GPU')
+            logger.info(f"{len(gpus)} Physical GPUs, {len(logical_gpus)} Logical GPUs")
+          except RuntimeError as e:
+            logger.error(e)
+    else:
+        logger.info("No GPUs detected. Training will proceed on CPU.")
 
-    temp_path = '/tmp/model.keras'
-    model.save(temp_path)
-    with open(temp_path, 'rb') as f:
-        model_bytes = f.read()
-    s3_path = 's3://air-quality-forecast/lstm.keras'
-    with s3.open(s3_path, 'wb') as s3_file:
-        s3_file.write(model_bytes)
+
+
+    tuner = kt.RandomSearch(
+    lambda hp: build_model(hp, input_shape, output_shape),
+    objective='val_loss',
+    max_trials=10,
+    executions_per_trial=1,
+    directory= args.output_data_dir,
+    project_name='lstm_tuning',
+    overwrite=True
+    )
+
+    logger.info("Start tuning")
+    tuner.search(X_train, y_train, epochs=10, validation_split=0.2, batch_size=32)
+
+    best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
+    logger.info(f"Best hyperparameters: {best_hps.values}")
+
+    model = tuner.hypermodel.build(best_hps)
+    logger.info("Start training best model")
+    history = train_model(model, X_train, y_train, epochs, batch_size, validation_split=0.2)
+
+    rmse = evaluate_model(model, X_test, y_test, scaler_target)
+
+    logger.info(f"Saving model to {args.model_dir}")
+    save_model_to_s3(model, bucket, 'lstm.keras')
     logger.info("Model saved to S3")
 
 
+
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--epochs', type=int, default=80)
+    parser.add_argument('--batch_size', type=int, default=32)
+    parser.add_argument('--bucket', type=str, default = os.environ.get('S3_BUCKET_NAME'))
+
+    parser.add_argument('--model_dir', type=str, default=os.environ.get('SM_MODEL_DIR'))
+    parser.add_argument('--output_data_dir', type=str, default=os.environ.get('SM_OUTPUT_DATA_DIR'))
+    parser.add_argument('--num_gpus', type=int, default=os.environ.get('SM_NUM_GPUS'))
+
+    args = parser.parse_args()
+
+    main(args)

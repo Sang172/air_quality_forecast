@@ -30,6 +30,7 @@ logging.basicConfig(level=logging.INFO,
                     datefmt='%Y-%m-%d %H:%M:%S')
 logger = logging.getLogger(__name__)
 
+logger.info('initializing s3fs')
 s3 = s3fs.S3FileSystem(key=AWS_ACCESS_KEY_ID, secret=AWS_SECRET_ACCESS_KEY)
 
 with s3.open('s3://air-quality-forecast/scaler_feature.pickle', 'rb') as file:
@@ -55,7 +56,7 @@ MODEL_FILE_NAME = 'lstm.keras'
 LOCAL_MODEL_PATH = os.path.join(tempfile.gettempdir(), 'local_lstm.keras')
 download_from_s3_s3fs(MODEL_FILE_NAME, LOCAL_MODEL_PATH)
 model = tf.keras.models.load_model(LOCAL_MODEL_PATH)
-
+logger.info('all data loaded from S3 Bucket')
 
 
 def geocode_address(address):
