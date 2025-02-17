@@ -11,13 +11,11 @@ env:
   GCP_REGION: ${{ secrets.GCP_REGION }}
   GCP_REPOSITORY: ${{ secrets.GCP_ARTIFACT_REPOSITORY }}
 
-  AWS_REGION_PREPARE: us-west-1 
+  AWS_REGION: us-west-2
   ECR_REPOSITORY_PREPARE: air-quality-forecast-prepare
-  ECS_CLUSTER: air-quality-forecast-prepare-cluster
-  ECS_TASK_DEFINITION: air-quality-forecast-prepare-task 
+  ECS_TASK_DEFINITION: air-quality-forecast-prepare-task
   CONTAINER_NAME: prepare-container
 
-  AWS_REGION_TRAIN: us-west-2
   ECR_REPOSITORY_TRAIN: air-quality-forecast-train
 
 jobs:
@@ -83,7 +81,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION_PREPARE }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
@@ -107,10 +105,10 @@ jobs:
           container-name: ${{ env.CONTAINER_NAME }}
           image: ${{ steps.build-image.outputs.image }}
 
-      - name: Deploy Amazon ECS Task Definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: ${{ steps.render-task-definition.outputs.task-definition }}
-          service: ${{ env.ECS_SERVICE }}
-          cluster: ${{ env.ECS_CLUSTER }}
-          wait-for-service-stability: true
+      - name: Register Task Definition
+        id: register-task-def
+        run: |
+          aws ecs register-task-definition --cli-input-json file://prepare/task-definition.json
+        env:
+          AWS_ACCESS_KEY: ${{ secrets.AWS_ACCESS_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

@@ -6,7 +6,7 @@
     "containerDefinitions": [
         {
             "name": "prepare-container",
-            "image": "864899839701.dkr.ecr.us-west-1.amazonaws.com/air-quality-forecast-prepare:latest",
+            "image": "864899839701.dkr.ecr.us-west-2.amazonaws.com/air-quality-forecast-prepare:latest",
             "memory": 4096,
             "cpu": 1024,
             "essential": true,
@@ -24,7 +24,7 @@
                 "logDriver": "awslogs",
                 "options": {
                     "awslogs-group": "/ecs/air-quality-forecast-prepare-task",
-                    "awslogs-region": "us-west-1",
+                    "awslogs-region": "us-west-2",
                     "awslogs-stream-prefix": "ecs"
                 }
             }
