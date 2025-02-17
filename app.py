@@ -1,5 +1,5 @@
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pytz
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderUnavailable, GeocoderServiceError
@@ -19,8 +19,7 @@ import tempfile
 
 load_dotenv()
 
-api_key=os.environ.get('OPENAQ_API_KEY')
-headers = {"X-API-Key": api_key}
+API_KEY=os.environ.get('OPENWEATHER_API_KEY')
 AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY')
 AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY')
 S3_BUCKET_NAME = os.environ.get('S3_BUCKET_NAME')
@@ -73,93 +72,49 @@ def geocode_address(address):
     
 
 
-def get_sensor_ids(coord, hours_ago=48):
-    now_utc = datetime.now(pytz.utc)
-    pacific_tz = pytz.timezone('US/Pacific')
-    now_pacific = now_utc.astimezone(pacific_tz)
+def unixtime_to_local(dt):
+    utc_dt = datetime.fromtimestamp(dt, tz=timezone.utc)
 
-    date_to = now_pacific.isoformat()[:10]
-    date_from = (now_pacific - timedelta(hours=hours_ago)).isoformat()[:10]
-    url1 = "https://api.openaq.org/v3/locations?coordinates="
-    url2 = f"{coord[0]},{coord[1]}"
-    url3 = "&params_id=2&radius=25000&limit=1000" + f'&date_from={date_from}' + f'&date_to={date_to}'
-    base_url = url1 + url2 + url3
+    pacific = pytz.timezone("America/Los_Angeles")
+    local_dt = utc_dt.astimezone(pacific)
+
+    return local_dt.isoformat()
 
 
-    try:
-        response = requests.get(base_url, headers=headers)
-        response.raise_for_status()
-        data = response.json()['results']
-        location_ids = {x['id']: ([y['id'] for y in x['sensors'] if y['parameter']['id']==2], x['distance'], (x['coordinates']['latitude'],x['coordinates']['longitude']) ) for x in data}
-        location_ids = {k: v for k,v in location_ids.items() if len(v[0])>0}
-        location_ids = sorted(location_ids.items(), key = lambda x: x[1][1])
-        location_ids = dict(location_ids)
-        sensor_ids = {v[0][0]:v[2] for k,v in location_ids.items()}
-        return sensor_ids
-
-    except requests.exceptions.RequestException as e:
-        logger.info(f"OpenAQ API Error: {e}")
-        return None
-
-    except ValueError as e:
-        logger.info(f"Error parsing OpenAQ response: {e}")
-        return None
-    
 
 
-def get_sensor_measurements(sensor_id, hours_ago=48):
+def open_weather_api_call(coord, retries=5, delay=0.5):
+    latitude = coord[0]
+    longitude = coord[1]
+    c = (np.round(latitude,6),np.round(longitude,6))
+    url = f"http://api.openweathermap.org/data/2.5/air_pollution/history?lat={latitude}&lon={longitude}&start={int(time.time())-172800}&end={int(time.time())}&appid={API_KEY}"
 
-    now_utc = datetime.now(pytz.utc)
-    pacific_tz = pytz.timezone('US/Pacific')
-    now_pacific = now_utc.astimezone(pacific_tz)
+    for attempt in range(retries):
+        response = requests.get(url)
 
-    date_to = now_pacific.isoformat()
-    date_from = (now_pacific - timedelta(hours=hours_ago)).isoformat()
-    url1 = "https://api.openaq.org/v3/sensors/"
-    url2 = f"{sensor_id}/hours?"
-    url3 = f'&date_from={date_from[:10]}' + f'&date_to={date_to[:10]}' + "&limit=100"
-    base_url = url1 + url2 + url3
+        if response.status_code == 200:
+            data = response.json()['list']
+            lst = []
+            for x in data:
+                for k,v in x.items():
+                    if k=='dt':
+                        a = unixtime_to_local(v)
+                    if k=='components':
+                        b = v['pm2_5']
+                lst.append((a,b,c))
+            lst = sorted(lst, key=lambda x: x[0])
+            return lst
+        else:
+            print(f"Attempt {attempt + 1} failed: {response.status_code} - {response.text}")
+            if attempt < retries - 1:
+                time.sleep(delay)
 
-    try:
-        response = requests.get(base_url, headers=headers)
-        response.raise_for_status()
-        data = response.json()['results']
-        return data
-
-    except requests.exceptions.RequestException as e:
-        logger.info(f"OpenAQ API Error: {e}")
-        return None
-
-    except ValueError as e:
-        logger.info(f"Error parsing OpenAQ response: {e}")
-        return None
-    
-
-def get_closest_measurement(sensor_ids, hours_ago=48):
-    
-    now_utc = datetime.now(pytz.utc)
-    pacific_tz = pytz.timezone('US/Pacific')
-    now_pacific = now_utc.astimezone(pacific_tz)
-
-    date_to = now_pacific.isoformat()
-    date_from = (now_pacific - timedelta(hours=hours_ago)).isoformat()
-
-    outer_break=False
-    for k,v in sensor_ids.items():
-        m = get_sensor_measurements(k)
-        if m:
-            m = [(x['period']['datetimeTo']['local'], x['value'],v) for x in m if x['period']['datetimeTo']['local']<=date_to and x['period']['datetimeTo']['local']>=date_from]
-            if len(m)>10:
-                outer_break = True
-                break
-        if outer_break:
-            break
-        time.sleep(0.5)
-    if m is None or len(m)<=10:
-        logger.info("Could not find nearby air quality data for the last 24 hours")
-        return None
-    return m
+    print("All retry attempts failed.")
+    return None 
         
+
+
+
 
 def create_dataframe(data_list):
 
@@ -196,6 +151,8 @@ def create_dataframe(data_list):
     return df.tail(24).reset_index(drop=True)
 
 
+
+
 def open_meteo_api_call(measurements, hours_ago=48):
 
     now_utc = datetime.now(pytz.utc)
@@ -212,26 +169,52 @@ def open_meteo_api_call(measurements, hours_ago=48):
     url2 = f"latitude={aq_lat}&longitude={aq_lon}"
     url3 = f"&start_date={date_from[:10]}&end_date={date_to[:10]}&hourly=temperature_2m,relative_humidity_2m,precipitation,rain,snowfall,cloud_cover,wind_speed_10m,wind_direction_10m&timezone=America%2FLos_Angeles"
     url = url1+url2+url3
-    response = requests.get(url)
 
     df = create_dataframe(measurements)
 
-    if response.status_code == 200:
-        data = response.json()
-        df1 = pd.DataFrame(data['hourly'])
-        df1['w_lat'] = data['latitude']
-        df1['w_lon'] = data['longitude']
-        df1['w_elevation'] = data['elevation']
-        df1['w_coord'] = df1.apply(lambda x: (x['w_lat'],x['w_lon']), axis=1)
-        df1['time'] = pd.to_datetime(df1['time'])
-        df1['distance_mi'] = df1.apply(lambda x: geodesic(x['w_coord'],coord).miles, axis=1)
-        df = df.merge(df1, left_on=['time'], right_on = ['time'], how='left')
-        df['lat_diff'] = df['aq_lat'] - df['w_lat']
-        df['lon_diff'] = df['aq_lon'] - df['w_lon']
-        df = df.drop(columns=['w_lat','w_lon','w_coord'])
-        return df
-    else:
-        print(f"Error: {response.status_code}")
+    max_retries = 5
+    delay = 0.5
+
+    for attempt in range(max_retries):
+        try:
+            response = requests.get(url)
+
+            if response.status_code == 200:
+                data = response.json()
+                df1 = pd.DataFrame(data['hourly'])
+                df1['w_lat'] = data['latitude']
+                df1['w_lon'] = data['longitude']
+                df1['w_elevation'] = data['elevation']
+                df1['w_coord'] = df1.apply(lambda x: (x['w_lat'], x['w_lon']), axis=1)
+                df1['time'] = pd.to_datetime(df1['time'])
+                df1['distance_mi'] = df1.apply(lambda x: geodesic(x['w_coord'], coord).miles, axis=1)
+                df = df.merge(df1, left_on=['time'], right_on=['time'], how='left')
+                df['lat_diff'] = df['aq_lat'] - df['w_lat']
+                df['lon_diff'] = df['aq_lon'] - df['w_lon']
+                df = df.drop(columns=['w_lat', 'w_lon', 'w_coord'])
+                return df
+            else:
+                print(f"Attempt {attempt + 1}/{max_retries} - Error: {response.status_code}")
+                if attempt < max_retries - 1:
+                    time.sleep(delay)
+                continue
+
+        except requests.exceptions.RequestException as e:
+            print(f"Attempt {attempt + 1}/{max_retries} - Request Exception: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+            continue
+        except Exception as e:
+            print(f"Attempt {attempt + 1}/{max_retries} - Unexpected Error: {e}")
+            if attempt < max_retries - 1:
+                time.sleep(delay)
+            continue
+
+
+    print(f"Failed to retrieve data after {max_retries} attempts.")
+    return None
+
+
 
 
 def cyclical_encoding(df1):
@@ -262,6 +245,8 @@ def cyclical_encoding(df1):
     return df
 
 
+
+
 def normalize_data(df, feature_num, target):
     df[feature_num] = scaler_feature.transform(df[feature_num])
     df[feature_num] = df[feature_num].interpolate(method='linear').bfill().ffill()
@@ -288,6 +273,8 @@ def pm25_to_aqi(pm25):
             return round(aqi), interpretation
         
 
+
+
 def generate_next_24_hours(datetime_string):
     start_datetime = datetime.strptime(datetime_string, '%Y-%m-%d %H:%M:%S')
     hourly_datetimes = []
@@ -295,6 +282,8 @@ def generate_next_24_hours(datetime_string):
         next_hour = start_datetime + timedelta(hours=i+1)
         hourly_datetimes.append(next_hour.strftime('%Y-%m-%d %H:%M:%S'))
     return hourly_datetimes
+
+
 
 
 
@@ -319,26 +308,21 @@ def main(address: str):
     if not coord:
         logger.error("Could not geocode the provided address.")
         return None
+    logger.info(f"Geocoord is {coord}")
 
-    logger.info("Getting nearby sensor IDs...")
-    sensor_ids = get_sensor_ids(coord)
-    if not sensor_ids:
-        logger.error("Could not find sensor IDs for the provided coordinates.")
-        return None
-
-    logger.info("Getting closest air quality measurements...")
-    measurements = get_closest_measurement(sensor_ids)
+    logger.info("Getting closest air quality data...")
+    measurements = open_weather_api_call(coord)
     if not measurements:
-        logger.error("Could not find close measurements")
+        logger.error("Could not find close air quality measurements")
         return None
+    logger.info("Retrieved air quality data.")
 
-    logger.info("Calling Open-Meteo API...")
+    logger.info("Getting weather data...")
     data = open_meteo_api_call(measurements)
     if data is None:
         logger.error("Could not retrieve weather data.")
-        return None  # No point continuing
+        return None
     logger.info("Retrieved weather data.")
-
 
 
     logger.info("Start feature engineering")
