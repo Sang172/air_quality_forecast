@@ -1,4 +1,4 @@
-FROM 763104351884.dkr.ecr.us-west-2.amazonaws.com/tensorflow-training:2.12.0-gpu-py310-cu118-ubuntu20.04
+FROM 763104351884.dkr.ecr.us-west-2.amazonaws.com/tensorflow-training:2.18.0-gpu-py310-cu125-ubuntu22.04-sagemaker
 
 WORKDIR /opt/ml/code
 

@@ -1,4 +1,4 @@
-name: Deploy to Google Cloud Run and AWS Fargate
+name: Deploy to Google Cloud Run, AWS Fargate, and AWS SageMaker
 
 on:
   push:
