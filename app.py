@@ -156,7 +156,7 @@ def get_closest_measurement(sensor_ids, hours_ago=48):
             break
         time.sleep(0.5)
     if m is None or len(m)<=10:
-        logger.infot("Could not find nearby air quality data for the last 24 hours")
+        logger.info("Could not find nearby air quality data for the last 24 hours")
         return None
     return m
         

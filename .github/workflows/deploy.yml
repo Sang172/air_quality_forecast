@@ -135,6 +135,10 @@ jobs:
         id: login-ecr-train
         uses: aws-actions/amazon-ecr-login@v1
 
+      - name: Authenticate Docker to Pull Base Image
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin 763104351884.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+
       - name: Build, tag, and push train image to Amazon ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr-train.outputs.registry }}
