@@ -336,7 +336,6 @@ def merge_datasets(air_quality, weather):
     data = data.sort_values(['aq_coord','datetime']).reset_index(drop=True)
     data['lat_diff'] = data['aq_lat'] - data['w_lat']
     data['lon_diff'] = data['aq_lon'] - data['w_lon']
-    ############################################################################### data = data[(data['distance_mi']<3)]
     data = data[(data['distance_mi']<3)]
     return data
 
@@ -427,16 +426,19 @@ def create_lstm_input_output(
     X = np.full((d, 24, len(features)+1), np.nan) 
     y = np.full((d, 24), np.nan)
 
+    all_cols = target + feature_num
+    data_values = df[all_cols].values  # Get a NumPy array view – very fast!
+    target_values = df[target].values
+
     for i, row in enumerate(v):
         start_idx = row - 23
         end_idx = row + 1
-        data_slice = df[target+features].iloc[start_idx:end_idx].values
-        X[i] = data_slice
+        X[i] = data_values[start_idx:end_idx]
 
         y_start_idx = row + 1
         y_end_idx = row + 25
-        y_slice = df[target].iloc[y_start_idx:y_end_idx]
-        y[i] = y_slice.values.squeeze()        
+        y[i] = target_values[y_start_idx:y_end_idx].squeeze()     
+        
         if (i+1)%1000==0:
             logger.info(f"{i+1} th datapoint added")
 
