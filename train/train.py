@@ -3,6 +3,7 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error
 from sklearn.preprocessing import StandardScaler
@@ -134,10 +135,10 @@ def main(args):
 
 
 
-    tuner = kt.RandomSearch(
+    tuner = kt.BayesianOptimization(
     lambda hp: build_model(hp, input_shape, output_shape),
     objective='val_loss',
-    max_trials=10,
+    max_trials=30,
     executions_per_trial=1,
     directory= args.output_data_dir,
     project_name='lstm_tuning',
@@ -145,7 +146,9 @@ def main(args):
     )
 
     logger.info("Start tuning")
-    tuner.search(X_train, y_train, epochs=10, validation_split=0.2, batch_size=32)
+
+    early_stopping = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+    tuner.search(X_train, y_train, epochs=10, validation_split=0.2, batch_size=32, callbacks=[early_stopping])
 
     best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
     logger.info(f"Best hyperparameters: {best_hps.values}")
