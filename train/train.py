@@ -69,6 +69,13 @@ def build_model(hp, input_shape, output_shape):
 
 def train_model(model, X_train, y_train, epochs=10, batch_size=32, validation_split=0.2):
 
+    early_stopping = EarlyStopping(
+        monitor='val_loss',  # Monitor validation loss
+        patience=10,          # Number of epochs with no improvement
+        restore_best_weights=True,  # Restore the best weights
+        verbose=1            # Log when early stopping occurs
+    )
+
     history = model.fit(
         X_train,
         y_train,
@@ -76,6 +83,7 @@ def train_model(model, X_train, y_train, epochs=10, batch_size=32, validation_sp
         batch_size=batch_size,
         validation_split=validation_split,
         verbose=1,
+        callbacks=[early_stopping]
     )
     return history
 
@@ -139,7 +147,7 @@ def main(args):
     lambda hp: build_model(hp, input_shape, output_shape),
     objective='val_loss',
     max_trials=30,
-    executions_per_trial=1,
+    executions_per_trial=3,
     directory= args.output_data_dir,
     project_name='lstm_tuning',
     overwrite=True
