@@ -146,8 +146,8 @@ def main(args):
     tuner = kt.BayesianOptimization(
     lambda hp: build_model(hp, input_shape, output_shape),
     objective='val_loss',
-    max_trials=30,
-    executions_per_trial=3,
+    max_trials=15,
+    executions_per_trial=2,
     directory= args.output_data_dir,
     project_name='lstm_tuning',
     overwrite=True
