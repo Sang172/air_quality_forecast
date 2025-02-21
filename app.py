@@ -286,7 +286,6 @@ def generate_next_24_hours(datetime_string):
 
 
 
-
 def predict(data, target, feature_num):
     X = data[target+feature_num].values
     X = np.expand_dims(X, axis=0)
