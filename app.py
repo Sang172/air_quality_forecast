@@ -256,15 +256,16 @@ def normalize_data(df, feature_num, target):
 
 
 def pm25_to_aqi(pm25):
+    if pm25<0:
+        pm25=0
+        
     breakpoints = [
-        (0.0, 12.0, 0, 50, "Good"),
-        (12.1, 35.4, 51, 100, "Moderate"),
-        (35.5, 55.4, 101, 150, "Unhealthy for Sensitive Groups"),
-        (55.5, 150.4, 151, 200, "Unhealthy"),
-        (150.5, 250.4, 201, 300, "Very Unhealthy"),
-        (250.5, 350.4, 301, 400, "Hazardous"),
-        (350.5, 500.4, 401, 500, "Hazardous"),
-        (500.5, float('inf'), 501, 501, "Hazardous")
+        (0.0, 9.0, 0, 50, "Good"),
+        (9.0, 35.4, 50, 100, "Moderate"),
+        (35.4, 55.4, 100, 150, "Unhealthy for Sensitive Groups"),
+        (55.4, 125.4, 150, 200, "Unhealthy"),
+        (125.4, 225.4, 200, 300, "Very Unhealthy"),
+        (225.4, 10000, 300, 10000, "Hazardous")
     ]
 
     for bp_low, bp_high, aqi_low, aqi_high, interpretation in breakpoints:
