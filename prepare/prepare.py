@@ -202,8 +202,19 @@ def combine_csv_files(bucket):
 
         if 'location_id' in combined_df.columns and 'datetime' in combined_df.columns:
            combined_df = combined_df.sort_values(['location_id', 'datetime']).reset_index(drop=True)
-        return combined_df
 
+        if not df_list:
+          logger.info("No files were combined.")
+        else:
+            for file_path in all_files:
+                try:
+                    s3.rm(file_path)
+                    logger.info(f"Deleted: {file_path}")
+                except Exception as e:
+                    logger.error(f"Error deleting {file_path}: {e}")
+
+        return combined_df
+    
     except Exception as e:
         logger.info(f"An error occurred: {e}")
         return None
