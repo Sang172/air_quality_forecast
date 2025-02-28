@@ -17,7 +17,6 @@ import concurrent.futures
 from geopy.distance import geodesic
 import time
 import logging
-from flask import Flask, render_template, request, jsonify
 
 
 logging.basicConfig(level=logging.INFO,
@@ -48,6 +47,11 @@ s3 = s3fs.S3FileSystem()
 
 
 def get_openaq_locations(bbox, date_from, date_to, retries=10, retry_delay=2):
+    """Retrieves OpenAQ location IDs within a bounding box and date range.
+
+    Input Type: bbox (str), date_from (str), date_to (str), retries (int), retry_delay (int)
+    Output Type: list[str] or None
+    """
     url = 'https://api.openaq.org/v3/locations'
     url = url + '?bbox=' + bbox + '&params_id=2' + '&limit=1000' + f'&date_from={date_from}' + f'&date_to={date_to}'
 
@@ -87,7 +91,17 @@ def get_openaq_locations(bbox, date_from, date_to, retries=10, retry_delay=2):
     
 
 def process_location(location_id, date_from, date_to):
+    """Downloads, processes, and saves OpenAQ data for a given location ID.
 
+    This function retrieves gzipped CSV files from a public S3 bucket,
+    concatenates them into a single Pandas DataFrame, converts datetime
+    columns to date format, and saves the result to a private S3 bucket.
+    It handles temporary file storage and cleanup. It iterates through
+    the date range by month.
+
+    Input Type: location_id (str), date_from (str), date_to (str)
+    Output Type: tuple (str, bool) - (location_id, success_status)
+    """
     date_from_dt = datetime.strptime(date_from, '%Y-%m-%d').date()
     date_to_dt = datetime.strptime(date_to, '%Y-%m-%d').date()
     private_bucket_path="s3://air-quality-forecast/openaq_data/"
@@ -161,7 +175,11 @@ def process_location(location_id, date_from, date_to):
 
 
 def process_openaq_data(location_ids, date_from, date_to, max_workers=5):
+    """Processes OpenAQ data for multiple locations concurrently.
 
+    Input Type: location_ids (list[str]), date_from (str), date_to (str), max_workers (int)
+    Output Type: None
+    """
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [executor.submit(process_location, location_id, date_from, date_to)
                    for location_id in location_ids]
@@ -175,6 +193,11 @@ def process_openaq_data(location_ids, date_from, date_to, max_workers=5):
 
 
 def combine_csv_files(bucket):
+    """Combines CSV files from an S3 bucket, filters by 'pm25', and sorts.
+
+    Input Type: bucket (str)
+    Output Type: pd.DataFrame or None
+    """
     try:
         s3_path = bucket
 
@@ -221,6 +244,11 @@ def combine_csv_files(bucket):
 
 
 def create_coord(df):
+    """Processes a DataFrame to create and format coordinate columns.
+
+    Input Type: df (pd.DataFrame)
+    Output Type: pd.DataFrame
+    """
     air_quality = df.copy()
     air_quality['location'] = air_quality['location'].apply(lambda x: x.strip())
     air_quality['value'] = air_quality['value'].apply(lambda x: max(0,x)).apply(lambda x: min(100,x))
@@ -241,7 +269,11 @@ def create_coord(df):
 
 
 def standardize_datetime(air_quality_df):
+    """Standardizes 'datetime' so that the dataset becomes hourly data
 
+    Input Type: air_quality_df (pd.DataFrame)
+    Output Type: pd.DataFrame
+    """
     df = air_quality_df.copy()
     df = df[df['datetime'].str.contains("-08:00|-07:00", na=False)]
     df['datetime'] = df['datetime'].apply(lambda x: '-'.join(x.split('-')[:-1]))
@@ -263,6 +295,11 @@ def standardize_datetime(air_quality_df):
 
 
 def clean_location(df):
+    """Resolves cases where different location names are attached to the same coordinate.
+
+    Input Type: df (pd.DataFrame)
+    Output Type: pd.DataFrame
+    """
     df_consolidated = df.copy()
 
     if 'location' not in df_consolidated.columns:
@@ -283,6 +320,11 @@ def clean_location(df):
 
 
 def open_meteo_api_call(aq_lat, aq_lon, date_from, date_to, retries=10, retry_delay=2):
+    """Retrieves weather data from the Open-Meteo Archive API.
+
+    Input Type: aq_lat (float), aq_lon (float), date_from (str), date_to (str), retries (int), retry_delay (int)
+    Output Type: pd.DataFrame or None
+    """
     url1 = "https://archive-api.open-meteo.com/v1/archive?"
     url2 = f"latitude={aq_lat}&longitude={aq_lon}"
     url3 = f"&start_date={date_from}&end_date={date_to}&hourly=temperature_2m,relative_humidity_2m,precipitation,rain,snowfall,cloud_cover,wind_speed_10m,wind_direction_10m&timezone=America%2FLos_Angeles"
@@ -319,6 +361,11 @@ def open_meteo_api_call(aq_lat, aq_lon, date_from, date_to, retries=10, retry_de
 
 
 def get_closest_weather(air_quality, date_from, date_to):
+    """Retrieves and combines weather data for unique coordinates in air_quality.
+
+    Input Type: air_quality (pd.DataFrame), date_from (str), date_to (str)
+    Output Type: pd.DataFrame
+    """
     dfs = []
     i = 1
     for aq_lat, aq_lon in air_quality['aq_coord'].unique():
@@ -337,6 +384,13 @@ def get_closest_weather(air_quality, date_from, date_to):
 
 
 def merge_datasets(air_quality, weather):
+    """Merges air quality and weather data on coordinates and datetime.
+
+    Filters for coordinates with >1000 entries and distances < 3 miles.
+
+    Input Type: air_quality (pd.DataFrame), weather (pd.DataFrame)
+    Output Type: pd.DataFrame
+    """
     air_quality['datetime'] = pd.to_datetime(air_quality['datetime'])
     weather['time'] = pd.to_datetime(weather['time'])
     data = air_quality.merge(weather, left_on=['aq_coord','datetime'], right_on = ['aq_coord','time'], how='left')
@@ -353,6 +407,14 @@ def merge_datasets(air_quality, weather):
 
 
 def cyclical_encoding(df1):
+    """Applies cyclical encoding to time-based features and wind direction.
+
+    Extracts month, day of week, day of year, and hour from 'time'.
+    Encodes these and 'wind_direction_10m' using sin/cos transformations.
+
+    Input Type: df1 (pd.DataFrame)
+    Output Type: pd.DataFrame
+    """
     df = df1.copy()
     
     df['time'] = pd.to_datetime(df['time'])
@@ -380,6 +442,13 @@ def cyclical_encoding(df1):
     return df
 
 def normalize_data(df, feature_num, target):
+    """Normalizes numerical features and target variables using StandardScaler.
+
+    Saves fitted scalers to S3.
+
+    Input Type: df (pd.DataFrame), feature_num (list[str]), target (list[str])
+    Output Type: pd.DataFrame
+    """
     scaler_feature = StandardScaler()
     df[feature_num] = scaler_feature.fit_transform(df[feature_num])
     with s3.open('s3://air-quality-forecast/scaler_feature.pickle','wb') as file:
@@ -391,8 +460,17 @@ def normalize_data(df, feature_num, target):
         pickle.dump(scaler_target, file)
     return df
 
-def find_valid_indices(df, location_col='aq_coord', datetime_col='time', lag_hours=23, lead_hours=24):
 
+
+def find_valid_indices(df, location_col='aq_coord', datetime_col='time', lag_hours=23, lead_hours=24):
+    """Identifies indices with sufficient consecutive hourly data for lags and leads.
+
+    Checks for `lag_hours` of consecutive hourly data *before* and
+    `lead_hours` of consecutive hourly data *after* each index, grouped by location.
+
+    Input Type: df (pd.DataFrame), location_col (str), datetime_col (str), lag_hours (int), lead_hours (int)
+    Output Type: np.ndarray (indices)
+    """
     df = df.copy()
 
     df[datetime_col] = pd.to_datetime(df[datetime_col])
@@ -428,7 +506,14 @@ def create_lstm_input_output(
     target: list[str],
     feature_num: list[str],
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Creates input (X) and output (y) arrays for LSTM from valid indices.
 
+    Uses indices in `v` to slice `df` and construct 3D input array `X`
+    (samples, timesteps, features) and 2D output array `y` (samples, timesteps).
+
+    Input Type: v (np.ndarray), df (pd.DataFrame), target (list[str]), feature_num (list[str])
+    Output Type: tuple[np.ndarray, np.ndarray] (X, y)
+    """
     df = df.copy()
 
     features = feature_num.copy()
@@ -438,7 +523,7 @@ def create_lstm_input_output(
     y = np.full((d, 24), np.nan)
 
     all_cols = target + feature_num
-    data_values = df[all_cols].values  # Get a NumPy array view – very fast!
+    data_values = df[all_cols].values
     target_values = df[target].values
 
     for i, row in enumerate(v):

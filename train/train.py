@@ -31,11 +31,24 @@ logger = logging.getLogger(__name__)
 
 
 def load_data_from_s3(bucket, key):
+    """Loads pickled data from an S3 object.
+
+    Input Type: bucket (str), key (str)
+    Output Type: object (data loaded from pickle)
+    """
     s3 = boto3.client('s3')
     obj = s3.get_object(Bucket=bucket, Key=key)
     return pickle.load(obj['Body'])
 
+
 def save_model_to_s3(model, bucket, key):
+    """Saves a Keras model to an S3 bucket.
+
+    Uses a temporary directory to save the model locally before uploading.
+
+    Input Type: model (keras.Model), bucket (str), key (str)
+    Output Type: None
+    """
     s3 = boto3.resource('s3')
     with tempfile.TemporaryDirectory() as temp_dir:
         temp_path = os.path.join(temp_dir, 'lstm.keras')
@@ -44,6 +57,11 @@ def save_model_to_s3(model, bucket, key):
 
 
 def build_model(hp, input_shape, output_shape):
+    """Builds and compiles a Keras LSTM model with hyperparameter tuning.
+
+    Input Type: hp (keras_tuner.HyperParameters), input_shape (tuple), output_shape (int)
+    Output Type: keras.Model
+    """
     model = Sequential()
 
     for i in range(hp.Int('num_lstm_layers', 1, 3)):
@@ -68,12 +86,16 @@ def build_model(hp, input_shape, output_shape):
 
 
 def train_model(model, X_train, y_train, epochs=10, batch_size=32, validation_split=0.2):
+    """Trains the given Keras model with early stopping.
 
+    Input Type: model (keras.Model), X_train (np.ndarray), y_train (np.ndarray), epochs (int), batch_size (int), validation_split (float)
+    Output Type: keras.callbacks.History
+    """
     early_stopping = EarlyStopping(
-        monitor='val_loss',  # Monitor validation loss
-        patience=10,          # Number of epochs with no improvement
-        restore_best_weights=True,  # Restore the best weights
-        verbose=1            # Log when early stopping occurs
+        monitor='val_loss',
+        patience=10,
+        restore_best_weights=True,
+        verbose=1 
     )
 
     history = model.fit(
@@ -89,8 +111,11 @@ def train_model(model, X_train, y_train, epochs=10, batch_size=32, validation_sp
 
 
 def evaluate_model(model, X_test, y_test, scaler_target):
+    """Evaluates the model's performance using RMSE.
 
-
+    Input Type: model (keras.Model), X_test (np.ndarray), y_test (np.ndarray), scaler_target (StandardScaler)
+    Output Type: float (RMSE)
+    """
     y_pred = model.predict(X_test)
     mean = scaler_target.mean_
     std = scaler_target.scale_

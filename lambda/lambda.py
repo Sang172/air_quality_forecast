@@ -4,6 +4,11 @@ import os
 import time
 
 def lambda_handler(event, context):
+    """Triggers a SageMaker training job based on a previous job's configuration.
+
+    Input Type: event (dict), context (LambdaContext)
+    Output Type: dict - {'statusCode': int, 'body': str}
+    """
     sagemaker = boto3.client('sagemaker')
     base_job_name = os.environ.get('BASE_TRAINING_JOB_NAME')
     timestamp = time.strftime("%Y-%m-%d-%H-%M-%S", time.gmtime())

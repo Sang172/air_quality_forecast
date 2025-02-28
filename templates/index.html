@@ -163,7 +163,10 @@
             if (initialMessage) {
               initialMessage.style.display = 'none';
             }
-
+            const forecastHeading = forecastContainer.querySelector('h2');
+            if (forecastHeading) {
+                forecastHeading.style.display = 'none';
+            }
         });
 
         window.addEventListener('load', function() {

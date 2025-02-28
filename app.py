@@ -42,6 +42,11 @@ logger.info("Loaded target scaler from S3")
 
 
 def download_from_s3_s3fs(s3_file_name, local_path):
+    """Downloads a file from an S3 bucket using s3fs.
+
+    Input Type: s3_file_name (str), local_path (str)
+    Output Type: None
+    """
     try:
         s3_path = f"s3://{S3_BUCKET_NAME}/{s3_file_name}"
         with s3.open(s3_path, 'rb') as s3_file, open(local_path, 'wb') as local_file:
@@ -59,6 +64,11 @@ logger.info('all data loaded from S3 Bucket')
 
 
 def geocode_address(address):
+    """Geocodes an address using Nominatim and returns latitude/longitude.
+
+    Input Type: address (str)
+    Output Type: tuple (float, float) or None
+    """
     geolocator = Nominatim(user_agent="openaq_data_fetcher")
     try:
         location = geolocator.geocode(address, timeout=10)
@@ -73,6 +83,11 @@ def geocode_address(address):
 
 
 def unixtime_to_local(dt):
+    """Converts a Unix timestamp to a localized datetime string (America/Los_Angeles).
+
+    Input Type: dt (int) - Unix timestamp
+    Output Type: str - ISO formatted datetime string
+    """
     utc_dt = datetime.fromtimestamp(dt, tz=timezone.utc)
 
     pacific = pytz.timezone("America/Los_Angeles")
@@ -84,6 +99,11 @@ def unixtime_to_local(dt):
 
 
 def open_weather_api_call(coord, retries=5, delay=0.5):
+    """Retrieves air pollution data from OpenWeatherMap API for a given coordinate.
+
+    Input Type: coord (tuple), retries (int), delay (float)
+    Output Type: list[tuple] or None
+    """
     latitude = coord[0]
     longitude = coord[1]
     c = (np.round(latitude,6),np.round(longitude,6))
@@ -117,7 +137,14 @@ def open_weather_api_call(coord, retries=5, delay=0.5):
 
 
 def create_dataframe(data_list):
+    """Creates a DataFrame from processed OpenWeatherMap data.
 
+    Generates a DataFrame with 48 hourly timestamps, interpolates missing
+    'value' data, and returns the last 24 rows.
+
+    Input Type: data_list (list[tuple])
+    Output Type: pd.DataFrame
+    """
     processed_data = []
     for ts, val, coord in data_list:
         dt = datetime.fromisoformat(ts)
@@ -154,7 +181,16 @@ def create_dataframe(data_list):
 
 
 def open_meteo_api_call(measurements, hours_ago=48):
+    """Retrieves weather data from Open-Meteo API and merges it with air quality data.
 
+    Fetches weather data for the specified coordinates and time range,
+    creates a DataFrame from the provided air quality measurements,
+    merges the two DataFrames, and calculates distance/coordinate differences.
+    Handles retries for API requests.
+
+    Input Type: measurements (list), hours_ago (int)
+    Output Type: pd.DataFrame or None
+    """
     now_utc = datetime.now(pytz.utc)
     pacific_tz = pytz.timezone('US/Pacific')
     now_pacific = now_utc.astimezone(pacific_tz)
@@ -218,6 +254,14 @@ def open_meteo_api_call(measurements, hours_ago=48):
 
 
 def cyclical_encoding(df1):
+    """Applies cyclical encoding to time-based features and wind direction.
+
+    Extracts month, day of week, day of year, and hour from 'time'.
+    Encodes these and 'wind_direction_10m' using sin/cos transformations.
+
+    Input Type: df1 (pd.DataFrame)
+    Output Type: pd.DataFrame
+    """
     df = df1.copy()
     
     df['time'] = pd.to_datetime(df['time'])
@@ -248,6 +292,11 @@ def cyclical_encoding(df1):
 
 
 def normalize_data(df, feature_num, target):
+    """Applies pre-fitted normalization and interpolates missing values.
+
+    Input Type: df (pd.DataFrame), feature_num (list[str]), target (list[str])
+    Output Type: pd.DataFrame
+    """
     df[feature_num] = scaler_feature.transform(df[feature_num])
     df[feature_num] = df[feature_num].interpolate(method='linear').bfill().ffill()
     df[target] = scaler_target.transform(df[target])
@@ -256,6 +305,11 @@ def normalize_data(df, feature_num, target):
 
 
 def pm25_to_aqi(pm25):
+    """Converts PM2.5 concentration to AQI and provides interpretation.
+
+    Input Type: pm25 (float)
+    Output Type: tuple (int, str) - (AQI, Interpretation)
+    """
     if pm25<0:
         pm25=0
         
@@ -277,6 +331,11 @@ def pm25_to_aqi(pm25):
 
 
 def generate_next_24_hours(datetime_string):
+    """Generates a list of the next 24 hourly datetime strings.
+
+    Input Type: datetime_string (str) - in "YYYY-MM-DD HH:MM:SS" format
+    Output Type: list[str]
+    """
     start_datetime = datetime.strptime(datetime_string, '%Y-%m-%d %H:%M:%S')
     hourly_datetimes = []
     for i in range(24):
@@ -288,6 +347,11 @@ def generate_next_24_hours(datetime_string):
 
 
 def predict(data, target, feature_num):
+    """Generates 24-hour AQI forecasts using the pre-trained model.
+
+    Input Type: data (pd.DataFrame), target (list[str]), feature_num (list[str])
+    Output Type: dict - {datetime_string: (aqi, interpretation)}
+    """
     X = data[target+feature_num].values
     X = np.expand_dims(X, axis=0)
     mean = scaler_target.mean_
