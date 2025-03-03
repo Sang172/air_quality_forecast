@@ -28,4 +28,4 @@ Plans include:
 
 ## Links
 - [Medium Blog Post](https://medium.com/@sang.ahn.94/forecasting-air-quality-pm-2-5-in-the-sf-bay-area-with-lstm-aws-and-google-cloud-34be04215a05)
-- [Demo Video](https://youtu.be/zW5Wst9unVA)
+- [Demo Video](https://youtu.be/10m1FflgUEw)
